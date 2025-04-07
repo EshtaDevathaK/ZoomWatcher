@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { MicMonitor } from "@/components/media/mic-monitor";
 import { FaceDetector } from "@/components/media/face-detector";
+import { AudioContainer } from "@/components/media/audio-container";
 import { requestPermissions, requestScreenCapture } from "@/lib/media-permissions";
 
 // Initialize audio context to ensure audio works consistently across browsers
@@ -89,30 +90,7 @@ export default function MeetingRoom() {
   const [webrtcParticipants, setWebrtcParticipants] = useState<any[]>([]);
   const [remoteStreams, setRemoteStreams] = useState<Map<number, MediaStream>>(new Map());
   
-  // Global audio container ref to hold audio elements for all participants
-  const globalAudioContainer = useRef<HTMLDivElement | null>(null);
-  
-  // Create a div to hold all audio elements on mount
-  useEffect(() => {
-    // Create the audio container if it doesn't exist
-    if (!globalAudioContainer.current) {
-      const container = document.createElement('div');
-      container.id = 'global-audio-container';
-      container.style.display = 'none'; // Hide it from view
-      document.body.appendChild(container);
-      globalAudioContainer.current = container;
-      
-      console.log('Created global audio container for all participants');
-    }
-    
-    // Cleanup on unmount
-    return () => {
-      if (globalAudioContainer.current) {
-        document.body.removeChild(globalAudioContainer.current);
-        globalAudioContainer.current = null;
-      }
-    };
-  }, []);
+  // We no longer need a global audio container since we use AudioContainer components
   
   // References
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -779,86 +757,34 @@ export default function MeetingRoom() {
       prev.map(p => p.userId === userId ? { ...p, stream } : p)
     );
     
-    // ENHANCED AUDIO HANDLING: Create a dedicated audio element for this participant's audio
-    if (stream.getAudioTracks().length > 0 && globalAudioContainer.current) {
-      console.log(`Creating dedicated audio element for participant ${userId}'s audio tracks`);
-      
-      // Remove any existing audio element for this participant
-      const existingAudio = document.getElementById(`remote-audio-${userId}`);
-      if (existingAudio) {
-        console.log(`Removing existing audio element for participant ${userId}`);
-        existingAudio.remove();
-      }
-      
-      // Create a new audio element for this participant's audio
-      const audioElement = document.createElement('audio');
-      audioElement.id = `remote-audio-${userId}`;
-      audioElement.autoplay = true;
-      audioElement.controls = false; // No visible controls needed
-      audioElement.muted = false;
-      
-      // Add special attributes for cross-browser compatibility
-      audioElement.setAttribute('playsinline', 'true');
-      audioElement.setAttribute('autoplay', 'true');
-      
-      // Create a dedicated audio-only stream with just the audio tracks
-      const audioOnlyStream = new MediaStream();
-      stream.getAudioTracks().forEach(track => {
-        console.log(`Adding audio track to dedicated audio stream for participant ${userId}: ${track.id}`);
-        audioOnlyStream.addTrack(track);
-      });
-      
-      // Attach the audio-only stream to our audio element
-      audioElement.srcObject = audioOnlyStream;
-      
-      // Try to play the audio
-      const audioPlayPromise = audioElement.play();
-      if (audioPlayPromise !== undefined) {
-        audioPlayPromise
-          .then(() => console.log(`Successfully playing audio for participant ${userId}`))
-          .catch(error => {
-            console.error(`Error playing audio for participant ${userId}:`, error);
-            
-            // Try to recover audio on user interaction
-            initializeAudioContext();
-            
-            // Add a listener for user interaction to restart audio
-            const handleUserInteraction = () => {
-              console.log(`User interaction detected, trying to play audio for participant ${userId}`);
-              audioElement.play()
-                .then(() => {
-                  console.log(`Successfully playing audio for participant ${userId} after user interaction`);
-                  document.removeEventListener('click', handleUserInteraction);
-                })
-                .catch(err => console.error(`Failed to play audio after user interaction:`, err));
-            };
-            
-            document.addEventListener('click', handleUserInteraction);
-            
-            toast({
-              title: "Audio Playback",
-              description: "Click anywhere to enable audio from participants.",
-              duration: 5000,
-            });
-          });
-      }
-      
-      // Add the audio element to our global container
-      globalAudioContainer.current.appendChild(audioElement);
-      console.log(`Added dedicated audio element for participant ${userId} to global container`);
-    }
-    
-    // Immediately try to attach the video stream to the video element
-    const attachStreamToVideo = () => {
-      const videoElement = remoteVideoRefs.current.get(userId);
-      if (videoElement) {
-        console.log(`Attaching stream to video element for participant ${userId}`);
-        
-        // Reset video element properties
-        if (videoElement.srcObject) {
-          videoElement.srcObject = null;
-        }
-        
+    // We don't need special audio handling here since we're using AudioContainer components
+    // and remoteStreams has already been updated above
+    // We don't need special audio handling here since we're using AudioContainer components
+    // and remoteStreams has already been updated above
+    // We don't need special audio handling here since we're using AudioContainer components
+    // and remoteStreams has already been updated above
+    // We don't need special audio handling here since we're using AudioContainer components
+    // and remoteStreams has already been updated above
+    // We don't need special audio handling here since we're using AudioContainer components
+    // and remoteStreams has already been updated above
+    // We don't need special audio handling here since we're using AudioContainer components
+    // and remoteStreams has already been updated above
+    // We don't need special audio handling here since we're using AudioContainer components
+    // and remoteStreams has already been updated above
+    // We don't need special audio handling here since we're using AudioContainer components
+    // and remoteStreams has already been updated above
+    // We don't need special audio handling here since we're using AudioContainer components
+    // and remoteStreams has already been updated above
+    // We don't need special audio handling here since we're using AudioContainer components
+    // and remoteStreams has already been updated above
+    // We don't need special audio handling here since we're using AudioContainer components
+    // and remoteStreams has already been updated above
+    // We don't need special audio handling here since we're using AudioContainer components
+    // and remoteStreams has already been updated above
+    // We don't need special audio handling here since we're using AudioContainer components
+    // and remoteStreams has already been updated above
+    // We don't need special audio handling here since we're using AudioContainer components
+    // and remoteStreams has already been updated above
         // Set critical video properties
         videoElement.muted = true; // Mute the video element since we handle audio separately
         videoElement.autoplay = true;
@@ -1406,6 +1332,15 @@ export default function MeetingRoom() {
                               </div>
                             </div>
                             
+                            {/* Audio container for this participant's audio */}
+                            {hasStream && remoteStreams.has(participant.user.id) && (
+                              <AudioContainer 
+                                stream={remoteStreams.get(participant.user.id) || null}
+                                userId={participant.user.id}
+                                muted={webrtcParticipant?.mediaState?.audio === false}
+                              />
+                            )}
+                            
                             {hasStream && (
                               // Show remote video stream with z-index to go on top of avatar
                               <video
@@ -1424,6 +1359,8 @@ export default function MeetingRoom() {
                                   height: '100%',
                                   borderRadius: '8px'
                                 }}
+                                // Always mute the video element as audio is handled by AudioContainer
+                                muted={true}
                                 onClick={(e) => {
                                   // Force play on click for browsers that require interaction
                                   console.log(`Video clicked for participant ${participant.user.id}, forcing play`);

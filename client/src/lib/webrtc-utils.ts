@@ -20,11 +20,41 @@ const iceServers: RTCConfiguration = {
 };
 
 /**
- * Create a new RTCPeerConnection with proper configuration
- * @returns RTCPeerConnection with ICE servers configured
+ * Create a new RTCPeerConnection with enhanced configuration 
+ * for reliable audio/video streaming
+ * @returns RTCPeerConnection with optimized settings
  */
 export function createPeerConnection(): RTCPeerConnection {
-  return new RTCPeerConnection(iceServers);
+  const pc = new RTCPeerConnection(iceServers);
+  
+  // Add event listeners for connection monitoring
+  pc.addEventListener('iceconnectionstatechange', () => {
+    console.log(`ICE connection state changed: ${pc.iceConnectionState}`);
+    
+    // Attempt to restart ICE if connection fails
+    if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
+      console.warn('ICE connection failed or disconnected, attempting to restart...');
+      try {
+        pc.restartIce();
+      } catch (err) {
+        console.error('Failed to restart ICE connection:', err);
+      }
+    }
+  });
+  
+  pc.addEventListener('connectionstatechange', () => {
+    console.log(`Connection state changed: ${pc.connectionState}`);
+  });
+  
+  pc.addEventListener('icecandidateerror', (event) => {
+    console.warn('ICE candidate error:', event);
+  });
+  
+  pc.addEventListener('negotiationneeded', () => {
+    console.log('Negotiation needed event triggered');
+  });
+  
+  return pc;
 }
 
 /**
