@@ -64,10 +64,14 @@ export default function AuthPage() {
   // Handle login submission
   const onLoginSubmit = async (data: LoginFormValues) => {
     try {
-      await loginMutation.mutateAsync({
+      const result = await loginMutation.mutateAsync({
         username: data.username,
         password: data.password,
       });
+      if (result) {
+        // Manually trigger navigation after successful login
+        navigate("/");
+      }
     } catch (error) {
       // Error is handled in the mutation
     }
@@ -76,7 +80,11 @@ export default function AuthPage() {
   // Handle registration submission
   const onRegisterSubmit = async (data: z.infer<typeof registrationSchema>) => {
     try {
-      await registerMutation.mutateAsync(data);
+      const result = await registerMutation.mutateAsync(data);
+      if (result) {
+        // Manually trigger navigation after successful registration
+        navigate("/");
+      }
     } catch (error) {
       // Error is handled in the mutation
     }
