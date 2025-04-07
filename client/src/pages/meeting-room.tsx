@@ -24,51 +24,68 @@ export default function MeetingRoom() {
   const [micEnabled, setMicEnabled] = useState(true);
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [screenShareEnabled, setScreenShareEnabled] = useState(false);
-  const [permissionsGranted, setPermissionsGranted] = useState(false);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
+  const [permissionsGranted, setPermissionsGranted] = useState(false);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isMiniView, setIsMiniView] = useState(false);
   const [showParticipantsList, setShowParticipantsList] = useState(false);
-  const [remoteStreams, setRemoteStreams] = useState<Map<number, MediaStream>>(new Map());
-  const [webrtcParticipants, setWebrtcParticipants] = useState<Array<{
-    userId: number, 
-    displayName: string, 
-    stream?: MediaStream,
-    mediaState?: {
-      audio: boolean,
-      video: boolean
-    }
-  }>>([]);
   
+  // WebRTC state
+  const [webrtcParticipants, setWebrtcParticipants] = useState<any[]>([]);
+  const [remoteStreams, setRemoteStreams] = useState<Map<number, MediaStream>>(new Map());
+  
+  // References
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
-  const remoteVideoRefs = useRef<Map<number, HTMLVideoElement | null>>(new Map());
-
-  // Check for media permissions on load
+  const remoteVideoRefs = useRef<Map<number, HTMLVideoElement>>(new Map());
+  
+  // Check camera and microphone permissions
   useEffect(() => {
     const checkPermissions = async () => {
       try {
         setCheckingPermissions(true);
+        
+        // Check permissions
         const result = await requestPermissions();
         setPermissionsGranted(result);
         
         if (result) {
           // Initialize camera and microphone
+          // Request camera and microphone access
           const stream = await navigator.mediaDevices.getUserMedia({
             video: true,
             audio: true
           });
           
+          console.log("Media stream obtained:", stream);
+          console.log("Video tracks:", stream.getVideoTracks().length);
+          console.log("Audio tracks:", stream.getAudioTracks().length);
+          
           localStreamRef.current = stream;
           
           if (localVideoRef.current) {
             localVideoRef.current.srcObject = stream;
+            
+            // Force visibility and ensure stream is attached
+            localVideoRef.current.style.display = "block";
+            
             // Ensure the video plays
             try {
               await localVideoRef.current.play();
               console.log("Video is now playing");
             } catch (playError) {
               console.error("Error playing video:", playError);
+              // Try autoplay with user interaction 
+              const playPromise = localVideoRef.current.play();
+              if (playPromise) {
+                playPromise.catch(() => {
+                  // Show a message to the user that they need to interact
+                  toast({
+                    title: "Video Playback",
+                    description: "Please click on the video area to enable your camera feed.",
+                  });
+                });
+              }
             }
           }
           
@@ -528,389 +545,369 @@ export default function MeetingRoom() {
         {showParticipantsList && (
           <div className="w-64 bg-gray-800 overflow-y-auto flex flex-col border-r border-gray-700">
             <div className="p-4 border-b border-gray-700">
-              <h3 className="text-white font-semibold flex items-center">
-                <Users className="w-4 h-4 mr-2" />
-                Participants ({participantCount})
-              </h3>
+              <h3 className="text-white text-lg font-medium">Participants</h3>
+              <p className="text-gray-400 text-sm">{participantCount} people</p>
             </div>
             
             <div className="flex-1 overflow-y-auto">
-              {isLoadingParticipants ? (
-                <div className="flex justify-center p-4">
-                  <Loader2 className="h-6 w-6 animate-spin text-white" />
-                </div>
-              ) : (
-                <div>
-                  {/* Host Section */}
-                  <div className="px-4 py-2 border-b border-gray-700">
-                    <h4 className="text-gray-400 text-xs uppercase tracking-wide mb-2">Host</h4>
-                    <div className="flex items-center justify-between py-2">
-                      <div className="flex items-center">
-                        <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white mr-2">
-                          {user?.displayName?.charAt(0)}
-                        </div>
-                        <span className="text-white text-sm">{user?.displayName} (You)</span>
-                      </div>
-                      <div className="flex space-x-1">
-                        <span className="w-5 h-5 bg-gray-700 rounded-full flex items-center justify-center">
-                          {micEnabled ? <Mic className="w-3 h-3 text-green-500" /> : <MicOff className="w-3 h-3 text-red-500" />}
-                        </span>
-                        <span className="w-5 h-5 bg-gray-700 rounded-full flex items-center justify-center">
-                          {cameraEnabled ? <Video className="w-3 h-3 text-green-500" /> : <VideoOff className="w-3 h-3 text-red-500" />}
-                        </span>
-                      </div>
+              <div className="p-4">
+                {/* Host (if viewing as participant) or You (if host) */}
+                <div className="mb-4">
+                  <h4 className="text-white text-sm font-medium mb-2">Host</h4>
+                  <div className="flex items-center p-2 rounded hover:bg-gray-700">
+                    <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium">
+                      {user && meeting.hostId === user.id 
+                        ? user.displayName?.charAt(0) || user.username.charAt(0)
+                        : participants
+                            ?.find((p: any) => p.user && p.user.id === meeting.hostId)
+                            ?.user?.displayName?.charAt(0) || 'H'}
                     </div>
-                  </div>
-                  
-                  {/* Participants Section */}
-                  <div className="px-4 py-2">
-                    <h4 className="text-gray-400 text-xs uppercase tracking-wide mb-2">Participants</h4>
-                    {participants && participants.length > 0 ? (
-                      participants
-                        .filter((p: any) => p.user && p.user.id !== user?.id)
-                        .map((participant: any) => (
-                          <div key={participant.id} className="flex items-center justify-between py-2">
-                            <div className="flex items-center">
-                              <div className="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center text-white mr-2">
-                                {participant.user.displayName.charAt(0)}
-                              </div>
-                              <span className="text-white text-sm">{participant.user.displayName}</span>
-                            </div>
-                            <div className="flex space-x-1">
-                              <span className="w-5 h-5 bg-gray-700 rounded-full flex items-center justify-center">
-                                <Mic className="w-3 h-3 text-green-500" />
-                              </span>
-                              <span className="w-5 h-5 bg-gray-700 rounded-full flex items-center justify-center">
-                                <Video className="w-3 h-3 text-green-500" />
-                              </span>
-                            </div>
-                          </div>
-                        ))
-                    ) : (
-                      <div className="text-gray-400 text-sm py-2">No other participants</div>
-                    )}
+                    <span className="ml-2 text-white">
+                      {user && meeting.hostId === user.id 
+                        ? 'You (Host)'
+                        : participants
+                            ?.find((p: any) => p.user && p.user.id === meeting.hostId)
+                            ?.user?.displayName || 'Host'}
+                    </span>
                   </div>
                 </div>
-              )}
-            </div>
-            
-            {/* Host Controls */}
-            {meeting.hostId === user?.id && (
-              <div className="p-4 border-t border-gray-700">
-                <h4 className="text-gray-400 text-xs uppercase tracking-wide mb-2">Host Controls</h4>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  className="w-full mb-2"
-                  onClick={() => {
-                    // Implement mute all functionality
-                    toast({
-                      title: "Mute All",
-                      description: "All participants have been muted",
-                    });
-                  }}
-                >
-                  Mute All
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full text-white"
-                  onClick={endMeeting}
-                >
-                  End Meeting
-                </Button>
+                
+                {/* Other participants */}
+                <div>
+                  <h4 className="text-white text-sm font-medium mb-2">Participants</h4>
+                  
+                  {participants && participants.length > 0 ? (
+                    participants
+                      .filter((p: any) => p.user && p.user.id !== meeting.hostId)
+                      .map((participant: any) => (
+                        <div key={participant.id} className="flex items-center p-2 rounded hover:bg-gray-700">
+                          <div className="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center text-white font-medium">
+                            {participant.user.displayName.charAt(0)}
+                          </div>
+                          <span className="ml-2 text-white">
+                            {participant.user.id === user?.id 
+                              ? `${participant.user.displayName} (You)`
+                              : participant.user.displayName}
+                          </span>
+                        </div>
+                      ))
+                  ) : (
+                      <div className="text-gray-400 text-sm py-2">No other participants</div>
+                  )}
+                </div>
               </div>
-            )}
+            </div>
           </div>
         )}
-        {/* Meeting Header */}
-        <div className="bg-gray-800 p-4">
-          <div className="container mx-auto flex flex-col md:flex-row md:justify-between md:items-center">
-            <div className="flex items-center mb-3 md:mb-0">
-              <h1 className="text-white text-xl font-bold">Meeting: {meeting.name}</h1>
-              <span className="ml-4 px-2 py-1 bg-green-500 text-white rounded-full text-xs">Live</span>
+        
+        <div className="flex-1 flex flex-col">
+          {/* Meeting Header */}
+          <div className="bg-gray-800 p-4 border-b border-gray-700">
+            <div className="container mx-auto flex justify-between items-center">
+              <div>
+                <h1 className="text-white text-xl font-bold">{meeting.name}</h1>
+                <div className="flex items-center text-gray-300 mt-1">
+                  <span className="text-sm">Meeting Code: {meeting.meetingCode}</span>
+                  <button 
+                    className="ml-2 text-gray-400 hover:text-white"
+                    onClick={copyMeetingInfo}
+                    title="Copy meeting info"
+                  >
+                    <Copy className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
               
-              {/* Participant Count */}
-              <div className="ml-4 flex items-center bg-gray-700 rounded-md px-2 py-1">
-                <Users className="text-white w-4 h-4 mr-1" />
-                <span className="text-white text-xs">{participantCount} participants</span>
+              <div className="flex items-center">
+                <button
+                  className="flex items-center bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-lg mr-2"
+                  onClick={inviteParticipants}
+                  title="Invite participants"
+                >
+                  <UserPlus className="w-4 h-4 mr-1" />
+                  <span className="hidden sm:inline">Invite</span>
+                </button>
+                
+                <button 
+                  className="flex items-center bg-gray-700 hover:bg-gray-600 text-white px-3 py-2 rounded-lg mr-2"
+                  onClick={toggleParticipantsList}
+                  title="Participants"
+                >
+                  <Users className="w-4 h-4 mr-1" />
+                  <span className="hidden sm:inline">Participants</span>
+                  <span className="ml-1 bg-gray-600 text-xs px-1.5 py-0.5 rounded-full">{participantCount}</span>
+                </button>
+                
+                <button 
+                  className="flex items-center bg-red-700 hover:bg-red-600 text-white px-3 py-2 rounded-lg"
+                  onClick={meeting.hostId === user?.id ? endMeeting : leaveMeeting}
+                  title={meeting.hostId === user?.id ? "End meeting" : "Leave meeting"}
+                >
+                  <LogOut className="w-4 h-4 mr-1" />
+                  <span className="hidden sm:inline">{meeting.hostId === user?.id ? "End" : "Leave"}</span>
+                </button>
               </div>
-            </div>
-            
-            {/* Meeting Code Display */}
-            <div className="flex items-center mb-3 md:mb-0 bg-gray-700 rounded-md p-2">
-              <div className="flex items-center mr-2">
-                <span className="text-white text-sm mr-2">Meeting Code:</span>
-                <span className="text-white font-bold">{meeting.meetingCode}</span>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-white hover:text-gray-300 p-1 h-auto"
-                onClick={() => {
-                  navigator.clipboard.writeText(meeting.meetingCode);
-                  toast({
-                    title: "Code copied",
-                    description: "Meeting code has been copied to clipboard.",
-                  });
-                }}
-              >
-                <Copy className="w-4 h-4" />
-              </Button>
-            </div>
-            
-            <div className="flex items-center space-x-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-white hover:text-gray-300"
-                onClick={copyMeetingInfo}
-                title="Copy meeting info"
-              >
-                <Copy className="w-5 h-5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-white hover:text-gray-300"
-                onClick={inviteParticipants}
-                title="Invite participants"
-              >
-                <UserPlus className="w-5 h-5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className={`text-white hover:text-gray-300 ${showParticipantsList ? 'bg-gray-700' : ''}`}
-                onClick={toggleParticipantsList}
-                title="Participants list"
-              >
-                <Users className="w-5 h-5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-white hover:text-red-500"
-                onClick={leaveMeeting}
-                disabled={leaveMeetingMutation.isPending}
-                title="Leave meeting"
-              >
-                <LogOut className="w-5 h-5" />
-              </Button>
             </div>
           </div>
-        </div>
-        
-        {/* Video Grid */}
-        <div className="flex-1 p-4 bg-gray-900 overflow-y-auto">
-          <div className="container mx-auto">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {/* Local Video */}
-              <div className={`${isMiniView ? 'fixed bottom-20 right-4 w-64 z-50' : 'bg-gray-800 rounded-lg overflow-hidden aspect-video'} relative`}>
-                <video
-                  ref={localVideoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  className="w-full h-full object-cover rounded-lg"
-                />
-                
-                {/* Video Controls Overlay */}
-                <div className="absolute top-2 right-2 flex space-x-2">
+          
+          {/* Video Grid */}
+          <div className="flex-1 p-4 bg-gray-900 overflow-y-auto">
+            <div className="container mx-auto">
+              <div className="flex flex-col space-y-4">
+                <div className="flex items-center space-x-4 mb-2">
                   <button 
-                    onClick={toggleFullScreen}
-                    className="bg-black bg-opacity-50 rounded-full p-1 hover:bg-opacity-70 transition-all"
-                    title={isFullScreen ? "Exit fullscreen" : "Fullscreen"}
+                    onClick={() => {
+                      const localVideo = document.getElementById('local-video-container');
+                      if (localVideo) {
+                        // Make local video full width
+                        localVideo.style.width = '100%';
+                        localVideo.style.maxWidth = '800px';
+                        localVideo.style.height = '480px';
+                        localVideo.style.margin = '0 auto';
+                      }
+                    }}
+                    className="bg-gray-700 px-3 py-1 rounded text-white text-sm hover:bg-gray-600"
                   >
-                    {isFullScreen ? (
-                      <Minimize className="w-4 h-4 text-white" />
-                    ) : (
-                      <Maximize className="w-4 h-4 text-white" />
-                    )}
+                    Large View
                   </button>
-                  
+                  <button 
+                    onClick={() => {
+                      const localVideo = document.getElementById('local-video-container');
+                      if (localVideo) {
+                        // Return to normal sizing
+                        localVideo.style.width = '';
+                        localVideo.style.maxWidth = '';
+                        localVideo.style.height = '';
+                        localVideo.style.margin = '';
+                      }
+                    }}
+                    className="bg-gray-700 px-3 py-1 rounded text-white text-sm hover:bg-gray-600"
+                  >
+                    Normal Size
+                  </button>
                   <button 
                     onClick={toggleMiniView}
-                    className="bg-black bg-opacity-50 rounded-full p-1 hover:bg-opacity-70 transition-all"
-                    title={isMiniView ? "Exit mini view" : "Mini view"}
+                    className="bg-gray-700 px-3 py-1 rounded text-white text-sm hover:bg-gray-600"
                   >
-                    {isMiniView ? (
-                      <Maximize className="w-4 h-4 text-white" />
-                    ) : (
-                      <Minimize className="w-4 h-4 text-white" />
-                    )}
+                    {isMiniView ? "Dock Video" : "Float Video"}
                   </button>
                 </div>
                 
-                {/* User Info Overlay */}
-                <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 p-2">
-                  <div className="flex justify-between items-center">
-                    <span className="text-white text-sm">{user?.displayName || "You"}</span>
-                    <div className="flex space-x-1">
-                      <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
-                        {cameraEnabled ? (
-                          <Video className="w-4 h-4 text-green-500" />
-                        ) : (
-                          <VideoOff className="w-4 h-4 text-red-500" />
-                        )}
-                      </span>
-                      <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
-                        {micEnabled ? (
-                          <Mic className="w-4 h-4 text-green-500" />
-                        ) : (
-                          <MicOff className="w-4 h-4 text-red-500" />
-                        )}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              {/* Other Participants (with WebRTC support) */}
-              {isLoadingParticipants ? (
-                <div className="bg-gray-800 rounded-lg overflow-hidden aspect-video flex items-center justify-center">
-                  <Loader2 className="h-8 w-8 animate-spin text-white" />
-                </div>
-              ) : participants && participants.length > 0 ? (
-                participants
-                  .filter((p: any) => p.user && p.user.id !== user?.id)
-                  .map((participant: any) => {
-                    // Find matching WebRTC participant if available
-                    const webrtcParticipant = webrtcParticipants.find(wp => wp.userId === participant.user.id);
-                    const hasStream = webrtcParticipant?.stream != null;
-                    
-                    // Set up ref callback for this participant's video
-                    const videoRef = (element: HTMLVideoElement | null) => {
-                      if (element) {
-                        remoteVideoRefs.current.set(participant.user.id, element);
-                        // Attach stream if already available
-                        if (webrtcParticipant?.stream) {
-                          element.srcObject = webrtcParticipant.stream;
-                          element.play().catch(err => console.error("Error playing remote video:", err));
+                <div className="videos-grid grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {/* Local Video */}
+                  <div 
+                    id="local-video-container"
+                    className={`${isMiniView ? 'fixed bottom-20 right-4 w-64 z-50' : 'bg-gray-800 rounded-lg overflow-hidden aspect-video'} relative min-h-[240px]`}>
+                    <video
+                      ref={localVideoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover rounded-lg"
+                      onClick={() => {
+                        if (localVideoRef.current) {
+                          localVideoRef.current.play().catch(err => console.error("Play error:", err));
                         }
-                      }
-                    };
+                      }}
+                    />
                     
-                    return (
-                      <div key={participant.id} className="bg-gray-800 rounded-lg overflow-hidden aspect-video relative">
-                        {hasStream ? (
-                          // Show remote video stream
-                          <video
-                            ref={videoRef}
-                            autoPlay
-                            playsInline
-                            className="w-full h-full object-cover"
-                            id={`remote-video-${participant.user.id}`}
-                          />
+                    {/* Video Controls Overlay */}
+                    <div className="absolute top-2 right-2 flex space-x-2">
+                      <button 
+                        onClick={toggleFullScreen}
+                        className="bg-black bg-opacity-50 rounded-full p-1 hover:bg-opacity-70 transition-all"
+                        title={isFullScreen ? "Exit fullscreen" : "Fullscreen"}
+                      >
+                        {isFullScreen ? (
+                          <Minimize className="w-4 h-4 text-white" />
                         ) : (
-                          // Show avatar placeholder
-                          <div className="w-full h-full flex items-center justify-center">
-                            <div className="bg-gray-700 rounded-full h-24 w-24 flex items-center justify-center text-3xl text-white">
-                              {participant.user.displayName.charAt(0)}
-                            </div>
-                          </div>
+                          <Maximize className="w-4 h-4 text-white" />
                         )}
-                        
-                        {/* Remote video controls */}
-                        {hasStream && (
-                          <div className="absolute top-2 right-2 flex space-x-2">
-                            <button 
-                              onClick={() => {
-                                const videoElement = document.getElementById(`remote-video-${participant.user.id}`);
-                                if (videoElement && videoElement instanceof HTMLVideoElement) {
-                                  if (document.fullscreenElement) {
-                                    document.exitFullscreen();
-                                  } else {
-                                    videoElement.requestFullscreen();
-                                  }
-                                }
-                              }}
-                              className="bg-black bg-opacity-50 rounded-full p-1 hover:bg-opacity-70 transition-all"
-                              title="Fullscreen"
-                            >
-                              <Maximize className="w-4 h-4 text-white" />
-                            </button>
-                          </div>
+                      </button>
+                      
+                      <button 
+                        onClick={toggleMiniView}
+                        className="bg-black bg-opacity-50 rounded-full p-1 hover:bg-opacity-70 transition-all"
+                        title={isMiniView ? "Exit mini view" : "Mini view"}
+                      >
+                        {isMiniView ? (
+                          <Maximize className="w-4 h-4 text-white" />
+                        ) : (
+                          <Minimize className="w-4 h-4 text-white" />
                         )}
-                        
-                        <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 p-2">
-                          <div className="flex justify-between items-center">
-                            <span className="text-white text-sm">{participant.user.displayName}</span>
-                            <div className="flex space-x-1">
-                              <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
-                                {webrtcParticipant?.mediaState?.video ? (
-                                  <Video className="w-4 h-4 text-green-500" />
-                                ) : (
-                                  <VideoOff className="w-4 h-4 text-red-500" />
-                                )}
-                              </span>
-                              <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
-                                {webrtcParticipant?.mediaState?.audio ? (
-                                  <Mic className="w-4 h-4 text-green-500" />
-                                ) : (
-                                  <MicOff className="w-4 h-4 text-red-500" />
-                                )}
-                              </span>
-                            </div>
-                          </div>
+                      </button>
+                    </div>
+                    
+                    {/* User Info Overlay */}
+                    <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 p-2">
+                      <div className="flex justify-between items-center">
+                        <span className="text-white text-sm">{user?.displayName || "You"}</span>
+                        <div className="flex space-x-1">
+                          <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
+                            {cameraEnabled ? (
+                              <Video className="w-4 h-4 text-green-500" />
+                            ) : (
+                              <VideoOff className="w-4 h-4 text-red-500" />
+                            )}
+                          </span>
+                          <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
+                            {micEnabled ? (
+                              <Mic className="w-4 h-4 text-green-500" />
+                            ) : (
+                              <MicOff className="w-4 h-4 text-red-500" />
+                            )}
+                          </span>
                         </div>
                       </div>
-                    );
-                  })
-              ) : (
-                <div className="bg-gray-800 rounded-lg overflow-hidden aspect-video flex items-center justify-center text-white">
-                  <p>No other participants yet</p>
+                    </div>
+                  </div>
+                  
+                  {/* Other Participants (with WebRTC support) */}
+                  {isLoadingParticipants ? (
+                    <div className="bg-gray-800 rounded-lg overflow-hidden aspect-video flex items-center justify-center">
+                      <Loader2 className="h-8 w-8 animate-spin text-white" />
+                    </div>
+                  ) : participants && participants.length > 0 ? (
+                    participants
+                      .filter((p: any) => p.user && p.user.id !== user?.id)
+                      .map((participant: any) => {
+                        // Find matching WebRTC participant if available
+                        const webrtcParticipant = webrtcParticipants.find(wp => wp.userId === participant.user.id);
+                        const hasStream = webrtcParticipant?.stream != null;
+                        
+                        // Set up ref callback for this participant's video
+                        const videoRef = (element: HTMLVideoElement | null) => {
+                          if (element) {
+                            remoteVideoRefs.current.set(participant.user.id, element);
+                            // Attach stream if already available
+                            if (webrtcParticipant?.stream) {
+                              element.srcObject = webrtcParticipant.stream;
+                              element.play().catch(err => console.error("Error playing remote video:", err));
+                            }
+                          }
+                        };
+                        
+                        return (
+                          <div key={participant.id} className="bg-gray-800 rounded-lg overflow-hidden aspect-video relative">
+                            {hasStream ? (
+                              // Show remote video stream
+                              <video
+                                ref={videoRef}
+                                autoPlay
+                                playsInline
+                                className="w-full h-full object-cover"
+                                id={`remote-video-${participant.user.id}`}
+                              />
+                            ) : (
+                              // Show avatar placeholder
+                              <div className="w-full h-full flex items-center justify-center">
+                                <div className="bg-gray-700 rounded-full h-24 w-24 flex items-center justify-center text-3xl text-white">
+                                  {participant.user.displayName.charAt(0)}
+                                </div>
+                              </div>
+                            )}
+                            
+                            {/* Remote video controls */}
+                            {hasStream && (
+                              <div className="absolute top-2 right-2 flex space-x-2">
+                                <button 
+                                  onClick={() => {
+                                    const videoElement = document.getElementById(`remote-video-${participant.user.id}`);
+                                    if (videoElement && videoElement instanceof HTMLVideoElement) {
+                                      if (document.fullscreenElement) {
+                                        document.exitFullscreen();
+                                      } else {
+                                        videoElement.requestFullscreen();
+                                      }
+                                    }
+                                  }}
+                                  className="bg-black bg-opacity-50 rounded-full p-1 hover:bg-opacity-70 transition-all"
+                                  title="Fullscreen"
+                                >
+                                  <Maximize className="w-4 h-4 text-white" />
+                                </button>
+                              </div>
+                            )}
+                            
+                            <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 p-2">
+                              <div className="flex justify-between items-center">
+                                <span className="text-white text-sm">{participant.user.displayName}</span>
+                                <div className="flex space-x-1">
+                                  <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
+                                    {webrtcParticipant?.mediaState?.video ? (
+                                      <Video className="w-4 h-4 text-green-500" />
+                                    ) : (
+                                      <VideoOff className="w-4 h-4 text-red-500" />
+                                    )}
+                                  </span>
+                                  <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
+                                    {webrtcParticipant?.mediaState?.audio ? (
+                                      <Mic className="w-4 h-4 text-green-500" />
+                                    ) : (
+                                      <MicOff className="w-4 h-4 text-red-500" />
+                                    )}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                  ) : (
+                    <div className="bg-gray-800 rounded-lg overflow-hidden aspect-video flex items-center justify-center text-white">
+                      <p>No other participants yet</p>
+                    </div>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           </div>
-        </div>
-        
-        {/* Meeting Controls */}
-        <div className="bg-gray-800 p-4">
-          <div className="container mx-auto flex justify-center">
-            <div className="flex space-x-4">
-              <Button
-                variant={micEnabled ? "default" : "destructive"}
-                size="icon"
-                className="rounded-full w-12 h-12"
-                onClick={toggleMicrophone}
-              >
-                {micEnabled ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
-              </Button>
-              
-              <Button
-                variant={cameraEnabled ? "default" : "destructive"}
-                size="icon"
-                className="rounded-full w-12 h-12"
-                onClick={toggleCamera}
-              >
-                {cameraEnabled ? <Video className="w-6 h-6" /> : <VideoOff className="w-6 h-6" />}
-              </Button>
-              
-              <Button
-                variant={screenShareEnabled ? "destructive" : "default"}
-                size="icon"
-                className="rounded-full w-12 h-12"
-                onClick={toggleScreenShare}
-              >
-                <ScreenShare className="w-6 h-6" />
-              </Button>
-              
-              <Button
-                variant="destructive"
-                size="icon"
-                className="rounded-full w-12 h-12"
-                onClick={meeting.hostId === user?.id ? endMeeting : leaveMeeting}
-                disabled={leaveMeetingMutation.isPending || endMeetingMutation.isPending}
-              >
-                {(leaveMeetingMutation.isPending || endMeetingMutation.isPending) ? (
-                  <Loader2 className="w-6 h-6 animate-spin" />
-                ) : (
-                  <X className="w-6 h-6" />
-                )}
-              </Button>
+          
+          {/* Meeting Controls */}
+          <div className="bg-gray-800 p-4">
+            <div className="container mx-auto flex justify-center">
+              <div className="flex space-x-4">
+                <Button
+                  variant={micEnabled ? "default" : "destructive"}
+                  size="icon"
+                  className="rounded-full w-12 h-12"
+                  onClick={toggleMicrophone}
+                >
+                  {micEnabled ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
+                </Button>
+                
+                <Button
+                  variant={cameraEnabled ? "default" : "destructive"}
+                  size="icon"
+                  className="rounded-full w-12 h-12"
+                  onClick={toggleCamera}
+                >
+                  {cameraEnabled ? <Video className="w-6 h-6" /> : <VideoOff className="w-6 h-6" />}
+                </Button>
+                
+                <Button
+                  variant={screenShareEnabled ? "destructive" : "default"}
+                  size="icon"
+                  className="rounded-full w-12 h-12"
+                  onClick={toggleScreenShare}
+                >
+                  <ScreenShare className="w-6 h-6" />
+                </Button>
+                
+                <Button
+                  variant="destructive"
+                  size="icon"
+                  className="rounded-full w-12 h-12"
+                  onClick={meeting.hostId === user?.id ? endMeeting : leaveMeeting}
+                  disabled={leaveMeetingMutation.isPending || endMeetingMutation.isPending}
+                >
+                  {(leaveMeetingMutation.isPending || endMeetingMutation.isPending) ? (
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                  ) : (
+                    <X className="w-6 h-6" />
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
