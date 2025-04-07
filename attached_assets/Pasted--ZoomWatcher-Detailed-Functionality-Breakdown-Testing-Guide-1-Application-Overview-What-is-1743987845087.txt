@@ -1,0 +1,146 @@
+🔍 ZoomWatcher - Detailed Functionality Breakdown & Testing Guide
+📌 1. Application Overview
+What is ZoomWatcher?
+A smart AI-powered meeting assistant that monitors your mic and camera activity during video calls.
+
+It automatically detects if you're muted or if your camera is inactive and takes actions accordingly.
+
+Provides alerts, vibrations, and notifications to keep the user informed.
+
+Who is this for?
+Students, Professionals, Teachers who attend online meetings regularly.
+
+Those who forget to unmute or turn on/off their cameras.
+
+Anyone who wants an AI assistant for better meeting management.
+
+📌 2. Key Features & Functionalities
+Each feature needs to be tested separately with different test cases. Let's go through them one by one.
+
+🎤 1️⃣ Voice Auto-Mute (Silence Detection)
+Functionality:
+If no sound is detected for 2 minutes, the mic is automatically muted.
+
+A pop-up alert appears saying:
+📢 "Mic muted due to inactivity."
+
+Vibration feedback: Short vibration (100ms).
+
+Manual Override Button: 🎛️ "Disable Auto-Mute" (Users can disable this feature).
+
+Test Cases:
+✅ Scenario 1: User remains silent for exactly 2 minutes → Mic should auto-mute.
+✅ Scenario 2: User speaks before 2 minutes → Mic should remain ON.
+✅ Scenario 3: Mic is already manually muted → No auto-mute should happen.
+✅ Scenario 4: Manual override is enabled → Auto-mute should not trigger.
+
+📷 2️⃣ Video Auto-Turn OFF (Face Detection)
+Functionality:
+If no face is detected for 15 seconds, a warning pop-up appears.
+
+A 3-second countdown starts.
+
+If no face is detected after the countdown, the camera turns OFF.
+
+A pop-up alert appears saying:
+📢 "Camera turned OFF due to inactivity."
+
+Vibration feedback: Long vibration (200ms).
+
+Manual Override Button: 🎛️ "Disable Auto Video-Off" (Users can prevent auto turn-off).
+
+Test Cases:
+✅ Scenario 1: User moves away from the camera for more than 15 seconds → Camera should turn OFF.
+✅ Scenario 2: User returns within 15 seconds → No action should be taken.
+✅ Scenario 3: Face is partially visible → The app should still recognize the user.
+✅ Scenario 4: Manual override is enabled → Camera should never turn OFF.
+✅ Scenario 5: Camera is already OFF manually → No action should be taken.
+
+🔄 3️⃣ Always-On Mode
+Functionality:
+A new toggle option in settings:
+🎛️ "Enable Always-On Mode"
+
+Prevents auto-muting & auto-video off.
+
+When enabled:
+✅ Mic will never auto-mute.
+✅ Video will stay ON even if no face is detected.
+✅ No pop-up alerts for inactivity.
+
+Test Cases:
+✅ Scenario 1: Enable "Always-On Mode" → Mic & Camera should never turn off automatically.
+✅ Scenario 2: Disable "Always-On Mode" → Normal AI detection should resume.
+✅ Scenario 3: Try to manually mute/unmute or turn off/on the camera → Should still work.
+✅ Scenario 4: Restart the app while "Always-On Mode" is enabled → Setting should remain the same.
+
+📢 4️⃣ Notification & Alert Control
+Functionality:
+Settings page allows users to toggle alerts ON/OFF:
+🎛️ "Auto-Mute Alerts"
+🎛️ "Auto-Video Off Alerts"
+🎛️ "Vibration Feedback"
+🎛️ New Option: "Disable All Notifications"
+
+"Disable All Notifications" → Completely silences pop-ups & vibrations.
+
+Test Cases:
+✅ Scenario 1: Turn OFF "Auto-Mute Alerts" → No pop-up appears when mic auto-mutes.
+✅ Scenario 2: Turn OFF "Auto-Video Off Alerts" → No pop-up appears when camera turns off.
+✅ Scenario 3: Turn OFF "Vibration Feedback" → No vibrations occur when actions happen.
+✅ Scenario 4: Enable "Disable All Notifications" → No pop-ups, alerts, or vibrations occur.
+
+📌 3. How Other Students Join a Meeting?
+As the Host, you need to provide a way for other students to join your meeting.
+
+🔗 1️⃣ Join via Meeting Link
+Host generates a unique meeting link.
+
+Example: https://smart-zoom-call.vercel.app/join/XYZ123
+
+Students click on the link and join automatically.
+
+Test Cases:
+✅ Scenario 1: Click on a valid link → Should successfully join the meeting.
+✅ Scenario 2: Click on an expired link → Should show an error message.
+✅ Scenario 3: Click on a wrong link format → Should show an error message.
+
+📜 2️⃣ Join via Meeting Code
+Host generates a 6-digit Meeting Code.
+
+Example: XYZ123
+
+Students enter the code manually in a "Join Meeting" input field.
+
+Test Cases:
+✅ Scenario 1: Enter a valid meeting code → Should join successfully.
+✅ Scenario 2: Enter a wrong meeting code → Should show an error.
+✅ Scenario 3: Try joining after the meeting has ended → Should show a message "Meeting not available."
+
+📌 4. UI & Button Suggestions for Hosting Meetings
+As the Host, you need clear buttons for users to create and join meetings easily.
+
+For Host:
+✅ "Start New Meeting" ➝ Generates a unique meeting link & code.
+✅ "Copy Meeting Link" ➝ Copies the link for easy sharing.
+✅ "Copy Meeting Code" ➝ Copies the code for students.
+✅ "Share via Email/WhatsApp" ➝ Option to share links directly.
+
+For Students:
+✅ "Join via Link" ➝ Enter the meeting with one click.
+✅ "Join via Code" ➝ Enter a 6-digit code to join manually.
+
+📌 5. Additional Considerations
+🔒 Security & Privacy
+✅ Users should approve camera & mic permissions before joining.
+✅ If denied, show "Permission Required" alert.
+✅ End-to-End Encryption should be considered.
+
+📊 Performance Testing
+✅ Test with multiple users joining at the same time.
+✅ Ensure the app does not lag with multiple people.
+
+📌 Final Thoughts
+🚀 ZoomWatcher is a powerful AI-driven meeting assistant with automatic mic & camera controls.
+🛠️ You now have detailed test cases for every feature to verify expected behavior.
+👨‍💻 Let me know if you need API suggestions, performance optimizations, or UI changes!
