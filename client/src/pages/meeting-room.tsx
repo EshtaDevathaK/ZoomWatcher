@@ -349,17 +349,41 @@ export default function MeetingRoom() {
       <div className="flex flex-col h-screen">
         {/* Meeting Header */}
         <div className="bg-gray-800 p-4">
-          <div className="container mx-auto flex justify-between items-center">
-            <div className="flex items-center">
+          <div className="container mx-auto flex flex-col md:flex-row md:justify-between md:items-center">
+            <div className="flex items-center mb-3 md:mb-0">
               <h1 className="text-white text-xl font-bold">Meeting: {meeting.name}</h1>
               <span className="ml-4 px-2 py-1 bg-green-500 text-white rounded-full text-xs">Live</span>
             </div>
+            
+            {/* Meeting Code Display - NEW */}
+            <div className="flex items-center mb-3 md:mb-0 bg-gray-700 rounded-md p-2">
+              <div className="flex items-center mr-2">
+                <span className="text-white text-sm mr-2">Meeting Code:</span>
+                <span className="text-white font-bold">{meeting.meetingCode}</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white hover:text-gray-300 p-1 h-auto"
+                onClick={() => {
+                  navigator.clipboard.writeText(meeting.meetingCode);
+                  toast({
+                    title: "Code copied",
+                    description: "Meeting code has been copied to clipboard.",
+                  });
+                }}
+              >
+                <Copy className="w-4 h-4" />
+              </Button>
+            </div>
+            
             <div className="flex items-center space-x-4">
               <Button
                 variant="ghost"
                 size="sm"
                 className="text-white hover:text-gray-300"
                 onClick={copyMeetingInfo}
+                title="Copy meeting info"
               >
                 <Copy className="w-5 h-5" />
               </Button>
@@ -368,6 +392,7 @@ export default function MeetingRoom() {
                 size="sm"
                 className="text-white hover:text-gray-300"
                 onClick={inviteParticipants}
+                title="Invite participants"
               >
                 <UserPlus className="w-5 h-5" />
               </Button>
@@ -377,6 +402,7 @@ export default function MeetingRoom() {
                 className="text-white hover:text-red-500"
                 onClick={leaveMeeting}
                 disabled={leaveMeetingMutation.isPending}
+                title="Leave meeting"
               >
                 <LogOut className="w-5 h-5" />
               </Button>

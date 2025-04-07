@@ -183,10 +183,10 @@ export default function MeetingsPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div>
                   <p className="text-sm text-gray-600 mb-2">Meeting Code:</p>
-                  <div className="flex items-center">
-                    <span className="text-lg font-medium mr-2">{activeMeeting.meetingCode}</span>
+                  <div className="flex items-center bg-gray-100 rounded-md p-3">
+                    <span className="text-xl font-bold mr-2">{activeMeeting.meetingCode}</span>
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
                       className="p-1 h-auto"
                       onClick={() => {
@@ -200,16 +200,17 @@ export default function MeetingsPage() {
                       <Copy className="h-4 w-4" />
                     </Button>
                   </div>
+                  <p className="text-xs text-gray-500 mt-1">Share this code with participants to join your meeting</p>
                 </div>
                 
                 <div>
                   <p className="text-sm text-gray-600 mb-2">Meeting Link:</p>
-                  <div className="flex items-center">
+                  <div className="flex items-center bg-gray-100 rounded-md p-2">
                     <span className="text-sm text-gray-800 truncate mr-2">
                       {`${window.location.origin}/join/${activeMeeting.meetingCode}`}
                     </span>
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       size="sm"
                       className="p-1 h-auto"
                       onClick={() => copyMeetingLink(activeMeeting.meetingCode)}
@@ -217,6 +218,9 @@ export default function MeetingsPage() {
                       <Copy className="h-4 w-4" />
                     </Button>
                   </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Send this link for one-click joining
+                  </p>
                 </div>
               </div>
               
@@ -379,9 +383,9 @@ export default function MeetingsPage() {
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {new Date(meeting.createdAt).toLocaleString()}
                         </td>
-                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        <td className="px-6 py-4 whitespace-nowrap text-sm">
                           <div className="flex items-center">
-                            <span>{meeting.meetingCode}</span>
+                            <span className="bg-gray-100 px-3 py-1 rounded-md font-medium">{meeting.meetingCode}</span>
                             <Button
                               variant="ghost"
                               size="sm"
