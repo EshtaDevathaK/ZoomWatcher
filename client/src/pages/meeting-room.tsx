@@ -15,7 +15,61 @@ import { MicMonitor } from "@/components/media/mic-monitor";
 import { FaceDetector } from "@/components/media/face-detector";
 import { requestPermissions, requestScreenCapture } from "@/lib/media-permissions";
 
+// Initialize audio context to ensure audio works consistently across browsers
+function initializeAudioContext() {
+  try {
+    // Create a new audio context
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    const audioCtx = new AudioContext();
+    
+    // If the context is suspended (happens in some browsers), resume it
+    if (audioCtx.state === 'suspended') {
+      console.log('Audio context is suspended, attempting to resume...');
+      audioCtx.resume().then(() => {
+        console.log('Audio context resumed successfully');
+      }).catch(err => {
+        console.error('Error resuming audio context:', err);
+      });
+    }
+    
+    // Create a temporary oscillator node to activate audio
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    
+    // Set gain to 0 (silent) and connect nodes
+    gainNode.gain.value = 0;
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    
+    // Start and stop quickly to "warm up" the audio system
+    oscillator.start(0);
+    setTimeout(() => oscillator.stop(), 100);
+    
+    console.log('Audio context initialized successfully');
+    return audioCtx;
+  } catch (err) {
+    console.error('Error initializing audio context:', err);
+    return null;
+  }
+}
+
 export default function MeetingRoom() {
+  // Initialize audio context on component mount to ensure audio works
+  useEffect(() => {
+    // We need to initialize audio on user interaction due to browser restrictions
+    const handleUserInteraction = () => {
+      initializeAudioContext();
+      // Clean up event listener after initialization
+      document.removeEventListener('click', handleUserInteraction);
+    };
+    
+    // Add the event listener
+    document.addEventListener('click', handleUserInteraction);
+    
+    return () => {
+      document.removeEventListener('click', handleUserInteraction);
+    };
+  }, []);
   const { user } = useAuth();
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -34,6 +88,31 @@ export default function MeetingRoom() {
   // WebRTC state
   const [webrtcParticipants, setWebrtcParticipants] = useState<any[]>([]);
   const [remoteStreams, setRemoteStreams] = useState<Map<number, MediaStream>>(new Map());
+  
+  // Global audio container ref to hold audio elements for all participants
+  const globalAudioContainer = useRef<HTMLDivElement | null>(null);
+  
+  // Create a div to hold all audio elements on mount
+  useEffect(() => {
+    // Create the audio container if it doesn't exist
+    if (!globalAudioContainer.current) {
+      const container = document.createElement('div');
+      container.id = 'global-audio-container';
+      container.style.display = 'none'; // Hide it from view
+      document.body.appendChild(container);
+      globalAudioContainer.current = container;
+      
+      console.log('Created global audio container for all participants');
+    }
+    
+    // Cleanup on unmount
+    return () => {
+      if (globalAudioContainer.current) {
+        document.body.removeChild(globalAudioContainer.current);
+        globalAudioContainer.current = null;
+      }
+    };
+  }, []);
   
   // References
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -700,7 +779,76 @@ export default function MeetingRoom() {
       prev.map(p => p.userId === userId ? { ...p, stream } : p)
     );
     
-    // Immediately try to attach the stream to the video element
+    // ENHANCED AUDIO HANDLING: Create a dedicated audio element for this participant's audio
+    if (stream.getAudioTracks().length > 0 && globalAudioContainer.current) {
+      console.log(`Creating dedicated audio element for participant ${userId}'s audio tracks`);
+      
+      // Remove any existing audio element for this participant
+      const existingAudio = document.getElementById(`remote-audio-${userId}`);
+      if (existingAudio) {
+        console.log(`Removing existing audio element for participant ${userId}`);
+        existingAudio.remove();
+      }
+      
+      // Create a new audio element for this participant's audio
+      const audioElement = document.createElement('audio');
+      audioElement.id = `remote-audio-${userId}`;
+      audioElement.autoplay = true;
+      audioElement.controls = false; // No visible controls needed
+      audioElement.muted = false;
+      
+      // Add special attributes for cross-browser compatibility
+      audioElement.setAttribute('playsinline', 'true');
+      audioElement.setAttribute('autoplay', 'true');
+      
+      // Create a dedicated audio-only stream with just the audio tracks
+      const audioOnlyStream = new MediaStream();
+      stream.getAudioTracks().forEach(track => {
+        console.log(`Adding audio track to dedicated audio stream for participant ${userId}: ${track.id}`);
+        audioOnlyStream.addTrack(track);
+      });
+      
+      // Attach the audio-only stream to our audio element
+      audioElement.srcObject = audioOnlyStream;
+      
+      // Try to play the audio
+      const audioPlayPromise = audioElement.play();
+      if (audioPlayPromise !== undefined) {
+        audioPlayPromise
+          .then(() => console.log(`Successfully playing audio for participant ${userId}`))
+          .catch(error => {
+            console.error(`Error playing audio for participant ${userId}:`, error);
+            
+            // Try to recover audio on user interaction
+            initializeAudioContext();
+            
+            // Add a listener for user interaction to restart audio
+            const handleUserInteraction = () => {
+              console.log(`User interaction detected, trying to play audio for participant ${userId}`);
+              audioElement.play()
+                .then(() => {
+                  console.log(`Successfully playing audio for participant ${userId} after user interaction`);
+                  document.removeEventListener('click', handleUserInteraction);
+                })
+                .catch(err => console.error(`Failed to play audio after user interaction:`, err));
+            };
+            
+            document.addEventListener('click', handleUserInteraction);
+            
+            toast({
+              title: "Audio Playback",
+              description: "Click anywhere to enable audio from participants.",
+              duration: 5000,
+            });
+          });
+      }
+      
+      // Add the audio element to our global container
+      globalAudioContainer.current.appendChild(audioElement);
+      console.log(`Added dedicated audio element for participant ${userId} to global container`);
+    }
+    
+    // Immediately try to attach the video stream to the video element
     const attachStreamToVideo = () => {
       const videoElement = remoteVideoRefs.current.get(userId);
       if (videoElement) {
@@ -712,7 +860,7 @@ export default function MeetingRoom() {
         }
         
         // Set critical video properties
-        videoElement.muted = false;
+        videoElement.muted = true; // Mute the video element since we handle audio separately
         videoElement.autoplay = true;
         videoElement.playsInline = true;
         videoElement.style.display = "block";
@@ -720,14 +868,26 @@ export default function MeetingRoom() {
         videoElement.style.position = "relative";
         videoElement.style.backgroundColor = "#000000";
         
-        // Apply the stream
-        videoElement.srcObject = stream;
+        // For better performance, create a video-only stream when possible
+        if (stream.getVideoTracks().length > 0) {
+          console.log(`Creating video-only stream for participant ${userId}`);
+          const videoOnlyStream = new MediaStream();
+          stream.getVideoTracks().forEach(track => {
+            console.log(`Adding video track to dedicated video stream: ${track.id}`);
+            videoOnlyStream.addTrack(track);
+          });
+          videoElement.srcObject = videoOnlyStream;
+        } else {
+          // Fallback to using the full stream
+          console.log(`Using full stream for participant ${userId} video as no dedicated video tracks found`);
+          videoElement.srcObject = stream;
+        }
         
         // Using a timeout to help with browser quirks
         setTimeout(() => {
           if (videoElement) {
             videoElement.play()
-              .then(() => console.log(`Successfully playing remote stream for participant ${userId} after timeout`))
+              .then(() => console.log(`Successfully playing remote video for participant ${userId} after timeout`))
               .catch(delayedError => {
                 console.error(`Error playing remote video for user ${userId} after timeout:`, delayedError);
               });
@@ -736,14 +896,14 @@ export default function MeetingRoom() {
         
         // Try to play immediately too
         videoElement.play()
-          .then(() => console.log(`Successfully playing remote stream for participant ${userId}`))
+          .then(() => console.log(`Successfully playing remote video for participant ${userId}`))
           .catch(error => {
             console.error(`Error playing remote video for user ${userId}:`, error);
             
             // Show a toast to prompt user interaction
             toast({
-              title: "Media Playback",
-              description: "Please click on participant videos to hear and see them.",
+              title: "Video Playback",
+              description: "Please click on participant videos to see them.",
             });
             
             // Add a visual indicator that clicking is needed
@@ -767,7 +927,7 @@ export default function MeetingRoom() {
                 if (videoElement) {
                   videoElement.play()
                     .then(() => {
-                      console.log(`Successfully playing remote stream after click for participant ${userId}`);
+                      console.log(`Successfully playing remote video after click for participant ${userId}`);
                       if (clickPrompt.parentNode) {
                         clickPrompt.parentNode.removeChild(clickPrompt);
                       }

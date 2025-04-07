@@ -113,18 +113,39 @@ export function addMediaStreamToPeerConnection(peerConnection: RTCPeerConnection
     }
   });
   
-  // Process audio tracks specifically
+  // Process audio tracks specifically - ENHANCED FOR RELIABLE AUDIO
   const audioTracks = stream.getAudioTracks();
   console.log(`Number of audio tracks to add: ${audioTracks.length}`);
   
   if (audioTracks.length === 0) {
     console.warn("No audio tracks found in the stream - participants may not hear audio");
+    // Try to request audio track if none found
+    try {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(audioStream => {
+          const newAudioTrack = audioStream.getAudioTracks()[0];
+          if (newAudioTrack) {
+            console.log("Successfully acquired audio track, adding to stream");
+            stream.addTrack(newAudioTrack);
+            
+            // Now add the new track to peer connection directly
+            try {
+              peerConnection.addTrack(newAudioTrack, stream);
+              console.log("Successfully added newly acquired audio track to peer connection");
+            } catch (err) {
+              console.error("Error adding newly acquired audio track to peer connection:", err);
+            }
+          }
+        })
+        .catch(err => console.error("Could not get audio track:", err));
+    } catch (err) {
+      console.error("Error trying to get audio track:", err);
+    }
   } else {
     audioTracks.forEach((track, index) => {
-      console.log(`Audio track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+      console.log(`ENHANCED AUDIO: Audio track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
       
-      // Ensure audio track is enabled (not muted by default)
-      // The UI controls will toggle this as needed
+      // Force audio track to be enabled - CRITICAL for audio to work
       track.enabled = true;
       
       // Apply audio constraints for better quality
@@ -137,6 +158,9 @@ export function addMediaStreamToPeerConnection(peerConnection: RTCPeerConnection
       } catch (e) {
         console.log("Error applying audio constraints:", e);
       }
+      
+      // Log detailed audio track capabilities for debugging
+      console.log(`Audio track ${index} settings:`, track.getSettings());
     });
   }
   

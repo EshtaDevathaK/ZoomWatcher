@@ -775,10 +775,34 @@ export function useWebRTC({
             console.error(`Error adding track to remote stream:`, err);
           }
           
-          // For audio tracks, make sure they're enabled for playback
+          // SUPER FIX for AUDIO: Make sure audio tracks are properly connected and enabled
           if (event.track.kind === 'audio') {
-            console.log(`Setting remote audio track to enabled for participant ${fromUserId}`);
+            console.log(`CRITICAL AUDIO FIX: Setting remote audio track to enabled for participant ${fromUserId}`);
             event.track.enabled = true;
+            
+            // Create an audio element to ensure audio actually plays
+            const audioElement = document.createElement('audio');
+            audioElement.srcObject = remoteStream;
+            audioElement.id = `remote-audio-${fromUserId}`;
+            audioElement.autoplay = true;
+            audioElement.muted = false; // CRITICAL: ensure audio is not muted
+            audioElement.style.display = 'none'; // Hide it from view
+            
+            // Remove any existing audio element for this participant
+            const existingAudio = document.getElementById(`remote-audio-${fromUserId}`);
+            if (existingAudio) {
+              existingAudio.remove();
+            }
+            
+            // Add to document to ensure it plays
+            document.body.appendChild(audioElement);
+            
+            console.log(`Created dedicated audio element for participant ${fromUserId}`);
+            
+            // Force audio playback attempt
+            audioElement.play().catch(err => {
+              console.error(`Failed to play audio for participant ${fromUserId}:`, err);
+            });
           }
           
           // Log track details for debugging
