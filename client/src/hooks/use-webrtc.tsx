@@ -369,16 +369,42 @@ export function useWebRTC({
         
         // Handle remote tracks
         peerConnection.ontrack = (event) => {
-          const remoteStream = new MediaStream();
-          event.streams[0].getTracks().forEach((track) => {
-            remoteStream.addTrack(track);
-          });
+          console.log(`Received track from participant ${targetUserId}:`, event.track.kind, event.track.enabled);
+          
+          // Create a new MediaStream from the received tracks
+          // First check if we already have a stream for this participant
+          const existingParticipant = participants.get(targetUserId);
+          const remoteStream = existingParticipant?.stream || new MediaStream();
+          
+          // Add the new track to the stream
+          if (!remoteStream.getTracks().some(t => t.id === event.track.id)) {
+            console.log(`Adding ${event.track.kind} track to remote stream for participant ${targetUserId}`);
+            remoteStream.addTrack(event.track);
+          }
+          
+          // For audio tracks, make sure they're enabled for playback
+          if (event.track.kind === 'audio') {
+            console.log(`Setting remote audio track to enabled for participant ${targetUserId}`);
+            event.track.enabled = true;
+          }
           
           setParticipants(prev => {
             const newMap = new Map(prev);
             const participant = newMap.get(targetUserId);
             
             if (participant) {
+              console.log(`Updating participant ${targetUserId} with new stream`);
+              
+              // Get participant's media state or set defaults
+              const mediaState = participant.mediaState || { audio: true, video: true };
+              
+              // Make sure the track's enabled state matches the participant's media state
+              if (event.track.kind === 'audio') {
+                event.track.enabled = mediaState.audio;
+              } else if (event.track.kind === 'video') {
+                event.track.enabled = mediaState.video;
+              }
+              
               const updatedParticipant = {
                 ...participant,
                 stream: remoteStream
@@ -389,6 +415,8 @@ export function useWebRTC({
               if (onParticipantStreamAdded) {
                 onParticipantStreamAdded(targetUserId, remoteStream);
               }
+            } else {
+              console.warn(`Received track for unknown participant ${targetUserId}`);
             }
             
             return newMap;
@@ -469,16 +497,42 @@ export function useWebRTC({
         
         // Handle remote tracks
         peerConnection.ontrack = (event) => {
-          const remoteStream = new MediaStream();
-          event.streams[0].getTracks().forEach((track) => {
-            remoteStream.addTrack(track);
-          });
+          console.log(`Received track from participant ${fromUserId}:`, event.track.kind, event.track.enabled);
+          
+          // Create a new MediaStream from the received tracks
+          // First check if we already have a stream for this participant
+          const existingParticipant = participants.get(fromUserId);
+          const remoteStream = existingParticipant?.stream || new MediaStream();
+          
+          // Add the new track to the stream
+          if (!remoteStream.getTracks().some(t => t.id === event.track.id)) {
+            console.log(`Adding ${event.track.kind} track to remote stream for participant ${fromUserId}`);
+            remoteStream.addTrack(event.track);
+          }
+          
+          // For audio tracks, make sure they're enabled for playback
+          if (event.track.kind === 'audio') {
+            console.log(`Setting remote audio track to enabled for participant ${fromUserId}`);
+            event.track.enabled = true;
+          }
           
           setParticipants(prev => {
             const newMap = new Map(prev);
             const participant = newMap.get(fromUserId);
             
             if (participant) {
+              console.log(`Updating participant ${fromUserId} with new stream`);
+              
+              // Get participant's media state or set defaults
+              const mediaState = participant.mediaState || { audio: true, video: true };
+              
+              // Make sure the track's enabled state matches the participant's media state
+              if (event.track.kind === 'audio') {
+                event.track.enabled = mediaState.audio;
+              } else if (event.track.kind === 'video') {
+                event.track.enabled = mediaState.video;
+              }
+              
               const updatedParticipant = {
                 ...participant,
                 stream: remoteStream
@@ -489,6 +543,8 @@ export function useWebRTC({
               if (onParticipantStreamAdded) {
                 onParticipantStreamAdded(fromUserId, remoteStream);
               }
+            } else {
+              console.warn(`Received track for unknown participant ${fromUserId}`);
             }
             
             return newMap;
@@ -566,7 +622,36 @@ export function useWebRTC({
   const sendMediaStateChange = useCallback(
     (mediaType: 'audio' | 'video', enabled: boolean) => {
       if (!user || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+        console.log(`Cannot send media state change - user or socket not available`);
         return;
+      }
+      
+      console.log(`Sending media state change: ${mediaType}=${enabled}`);
+      
+      // For audio tracks, make sure the actual tracks match the state we're sending
+      if (mediaType === 'audio' && localStream) {
+        const audioTracks = localStream.getAudioTracks();
+        console.log(`Ensuring ${audioTracks.length} audio tracks match state: ${enabled}`);
+        
+        audioTracks.forEach((track, index) => {
+          if (track.enabled !== enabled) {
+            console.log(`Fixing audio track ${index} state from ${track.enabled} to ${enabled}`);
+            track.enabled = enabled;
+          }
+        });
+      }
+      
+      // For video tracks, make sure the actual tracks match the state we're sending
+      if (mediaType === 'video' && localStream) {
+        const videoTracks = localStream.getVideoTracks();
+        console.log(`Ensuring ${videoTracks.length} video tracks match state: ${enabled}`);
+        
+        videoTracks.forEach((track, index) => {
+          if (track.enabled !== enabled) {
+            console.log(`Fixing video track ${index} state from ${track.enabled} to ${enabled}`);
+            track.enabled = enabled;
+          }
+        });
       }
       
       // Update local participant's media state in participants list
@@ -590,31 +675,38 @@ export function useWebRTC({
           };
           
           newMap.set(user.id, updatedParticipant);
+        } else {
+          console.log(`Local participant not found in participants list`);
         }
         
         return newMap;
       });
       
       // Send media state change to other participants
-      socketRef.current.send(
-        JSON.stringify(
-          formatWebRTCMessage(
-            'media-state-change',
-            meetingId,
-            {
-              userId: user.id,
-              username: user.username,
-              displayName: user.displayName
-            },
-            {
-              mediaType,
-              enabled
-            }
+      try {
+        socketRef.current.send(
+          JSON.stringify(
+            formatWebRTCMessage(
+              'media-state-change',
+              meetingId,
+              {
+                userId: user.id,
+                username: user.username,
+                displayName: user.displayName
+              },
+              {
+                mediaType,
+                enabled
+              }
+            )
           )
-        )
-      );
+        );
+        console.log(`Media state change sent successfully`);
+      } catch (error) {
+        console.error(`Error sending media state change:`, error);
+      }
     },
-    [user, meetingId]
+    [user, meetingId, localStream]
   );
 
   return {

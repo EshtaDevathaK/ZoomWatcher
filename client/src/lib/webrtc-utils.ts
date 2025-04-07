@@ -67,17 +67,26 @@ export async function createAnswer(
  * @param stream The MediaStream to add
  */
 export function addMediaStreamToPeerConnection(peerConnection: RTCPeerConnection, stream: MediaStream): void {
-  // First check if we already have senders for these tracks
+  // Remove all existing senders first to avoid stale tracks
   const senders = peerConnection.getSenders();
-  const currentTracks = senders.map(sender => sender.track?.id);
-  
-  // Add each track from the stream if not already added
-  stream.getTracks().forEach(track => {
-    // Check if this track is already in the peer connection
-    if (!currentTracks.includes(track.id)) {
-      console.log(`Adding track to peer connection: ${track.kind}, ID: ${track.id}, enabled: ${track.enabled}`);
-      peerConnection.addTrack(track, stream);
+  senders.forEach(sender => {
+    if (sender.track) {
+      console.log(`Removing existing track: ${sender.track.kind}, ID: ${sender.track.id}`);
+      peerConnection.removeTrack(sender);
     }
+  });
+  
+  // Log audio tracks to help with debugging
+  const audioTracks = stream.getAudioTracks();
+  console.log(`Number of audio tracks to add: ${audioTracks.length}`);
+  audioTracks.forEach((track, index) => {
+    console.log(`Audio track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+  });
+  
+  // Now add all tracks from the stream
+  stream.getTracks().forEach(track => {
+    console.log(`Adding track to peer connection: ${track.kind}, ID: ${track.id}, enabled: ${track.enabled}`);
+    peerConnection.addTrack(track, stream);
   });
 }
 

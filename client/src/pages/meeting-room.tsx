@@ -51,10 +51,22 @@ export default function MeetingRoom() {
         
         if (result) {
           // Initialize camera and microphone
-          // Request camera and microphone access
+          // Request camera and microphone access with specific constraints
           const stream = await navigator.mediaDevices.getUserMedia({
             video: true,
-            audio: true
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true
+            }
+          });
+          
+          // Make sure audio is not accidentally muted
+          const audioTracks = stream.getAudioTracks();
+          console.log(`Initial audio tracks: ${audioTracks.length}`);
+          audioTracks.forEach((track, index) => {
+            track.enabled = true;
+            console.log(`Setup audio track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
           });
           
           console.log("Media stream obtained:", stream);
@@ -189,23 +201,107 @@ export default function MeetingRoom() {
 
   // Toggle microphone
   const toggleMicrophone = () => {
+    console.log("Toggling microphone...");
     if (localStreamRef.current) {
       const audioTracks = localStreamRef.current.getAudioTracks();
-      audioTracks.forEach(track => {
-        track.enabled = !micEnabled;
+      console.log(`Audio tracks found: ${audioTracks.length}`);
+      
+      if (audioTracks.length === 0) {
+        console.log("No audio tracks found, attempting to get audio again");
+        
+        // Try to get audio tracks if none exist
+        navigator.mediaDevices.getUserMedia({ audio: true })
+          .then(audioStream => {
+            const newAudioTrack = audioStream.getAudioTracks()[0];
+            if (newAudioTrack) {
+              console.log("New audio track obtained, adding to stream");
+              localStreamRef.current?.addTrack(newAudioTrack);
+              newAudioTrack.enabled = !micEnabled;
+              setMicEnabled(!micEnabled);
+            }
+          })
+          .catch(err => {
+            console.error("Failed to get audio track:", err);
+            toast({
+              title: "Microphone Error",
+              description: "Could not access your microphone. Please check permissions.",
+              variant: "destructive"
+            });
+          });
+      } else {
+        // Toggle existing audio tracks
+        audioTracks.forEach((track, index) => {
+          console.log(`Toggling audio track ${index} from ${track.enabled} to ${!micEnabled}`);
+          track.enabled = !micEnabled;
+        });
+        setMicEnabled(!micEnabled);
+        
+        // Notify other participants about the state change
+        if (isConnected && sendMediaStateChange) {
+          console.log(`Sending audio state change to peers: ${!micEnabled}`);
+          sendMediaStateChange('audio', !micEnabled);
+        }
+      }
+    } else {
+      console.error("No local stream available");
+      toast({
+        title: "Microphone Error",
+        description: "Could not find local stream. Try refreshing the page.",
+        variant: "destructive"
       });
-      setMicEnabled(!micEnabled);
     }
   };
 
   // Toggle camera
   const toggleCamera = () => {
+    console.log("Toggling camera...");
     if (localStreamRef.current) {
       const videoTracks = localStreamRef.current.getVideoTracks();
-      videoTracks.forEach(track => {
-        track.enabled = !cameraEnabled;
+      console.log(`Video tracks found: ${videoTracks.length}`);
+      
+      if (videoTracks.length === 0) {
+        console.log("No video tracks found, attempting to get video again");
+        
+        // Try to get video tracks if none exist
+        navigator.mediaDevices.getUserMedia({ video: true })
+          .then(videoStream => {
+            const newVideoTrack = videoStream.getVideoTracks()[0];
+            if (newVideoTrack) {
+              console.log("New video track obtained, adding to stream");
+              localStreamRef.current?.addTrack(newVideoTrack);
+              newVideoTrack.enabled = !cameraEnabled;
+              setCameraEnabled(!cameraEnabled);
+            }
+          })
+          .catch(err => {
+            console.error("Failed to get video track:", err);
+            toast({
+              title: "Camera Error",
+              description: "Could not access your camera. Please check permissions.",
+              variant: "destructive"
+            });
+          });
+      } else {
+        // Toggle existing video tracks
+        videoTracks.forEach((track, index) => {
+          console.log(`Toggling video track ${index} from ${track.enabled} to ${!cameraEnabled}`);
+          track.enabled = !cameraEnabled;
+        });
+        setCameraEnabled(!cameraEnabled);
+        
+        // Notify other participants about the state change
+        if (isConnected && sendMediaStateChange) {
+          console.log(`Sending video state change to peers: ${!cameraEnabled}`);
+          sendMediaStateChange('video', !cameraEnabled);
+        }
+      }
+    } else {
+      console.error("No local stream available");
+      toast({
+        title: "Camera Error",
+        description: "Could not find local stream. Try refreshing the page.",
+        variant: "destructive"
       });
-      setCameraEnabled(!cameraEnabled);
     }
   };
 
@@ -387,6 +483,14 @@ export default function MeetingRoom() {
   
   const handleParticipantStreamAdded = useCallback((userId: number, stream: MediaStream) => {
     console.log(`Stream added for participant: ${userId}`);
+    console.log(`Stream has ${stream.getAudioTracks().length} audio tracks and ${stream.getVideoTracks().length} video tracks`);
+    
+    // For all audio tracks, ensure they're enabled by default
+    stream.getAudioTracks().forEach((track, index) => {
+      console.log(`Remote audio track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+      track.enabled = true;
+    });
+    
     setRemoteStreams(prev => {
       const newStreams = new Map(prev);
       newStreams.set(userId, stream);
@@ -400,12 +504,39 @@ export default function MeetingRoom() {
     // Attach stream to video element
     const videoElement = remoteVideoRefs.current.get(userId);
     if (videoElement) {
+      console.log(`Attaching stream to video element for participant ${userId}`);
       videoElement.srcObject = stream;
-      videoElement.play().catch(error => {
-        console.error(`Error playing remote video for user ${userId}:`, error);
-      });
+      
+      // Force autoplay to ensure audio plays without interaction
+      videoElement.muted = false;
+      videoElement.autoplay = true;
+      
+      // Ensure video is visible
+      videoElement.style.display = "block";
+      
+      // Try to play and handle potential autoplay restrictions
+      videoElement.play()
+        .then(() => console.log(`Successfully playing remote stream for participant ${userId}`))
+        .catch(error => {
+          console.error(`Error playing remote video for user ${userId}:`, error);
+          
+          // Show a toast to prompt user interaction
+          toast({
+            title: "Media Playback",
+            description: "Please click on participant videos to hear and see them.",
+          });
+          
+          // Add a click handler to play on user interaction
+          videoElement.onclick = () => {
+            videoElement.play()
+              .then(() => console.log(`Successfully playing remote stream after click for participant ${userId}`))
+              .catch(err => console.error(`Still failed to play after click:`, err));
+          };
+        });
+    } else {
+      console.warn(`No video element found for participant ${userId}`);
     }
-  }, []);
+  }, [toast]);
   
   const handleMeetingEnded = useCallback(() => {
     toast({
@@ -419,6 +550,7 @@ export default function MeetingRoom() {
   const handleMediaStateChanged = useCallback((userId: number, mediaType: 'audio' | 'video', enabled: boolean) => {
     console.log(`Media state changed for participant ${userId}: ${mediaType} ${enabled ? 'enabled' : 'disabled'}`);
     
+    // Update participant's media state in our state
     setWebrtcParticipants(prev => 
       prev.map(p => {
         if (p.userId === userId) {
@@ -434,7 +566,39 @@ export default function MeetingRoom() {
         return p;
       })
     );
-  }, []);
+    
+    // Also update the actual media tracks if we have a stream for this participant
+    const stream = remoteStreams.get(userId);
+    if (stream) {
+      console.log(`Updating ${mediaType} tracks for participant ${userId} to ${enabled}`);
+      
+      if (mediaType === 'audio') {
+        stream.getAudioTracks().forEach((track, index) => {
+          if (track.enabled !== enabled) {
+            console.log(`Setting remote audio track ${index} for participant ${userId} from ${track.enabled} to ${enabled}`);
+            track.enabled = enabled;
+          }
+        });
+      } else if (mediaType === 'video') {
+        stream.getVideoTracks().forEach((track, index) => {
+          if (track.enabled !== enabled) {
+            console.log(`Setting remote video track ${index} for participant ${userId} from ${track.enabled} to ${enabled}`);
+            track.enabled = enabled;
+          }
+        });
+      }
+      
+      // Update the video element if needed
+      const videoElement = remoteVideoRefs.current.get(userId);
+      if (videoElement && mediaType === 'audio') {
+        // For audio tracks, we can't use the muted property since that mutes local playback
+        // Instead, we handle it through the track's enabled state above
+        console.log(`Remote video element for participant ${userId} is now ${enabled ? 'unmuted' : 'muted'}`);
+      }
+    } else {
+      console.log(`No stream found for participant ${userId} to update ${mediaType} state`);
+    }
+  }, [remoteStreams]);
   
   // Initialize WebRTC when meeting is loaded and local stream is ready
   const { isConnected, participants: webrtcConnectedParticipants, sendMediaStateChange } = useWebRTC({
