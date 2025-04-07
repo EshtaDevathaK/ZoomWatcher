@@ -7,7 +7,7 @@ import SettingsPage from "@/pages/settings-page";
 import MeetingsPage from "@/pages/meetings-page";
 import MeetingRoom from "@/pages/meeting-room";
 import { ProtectedRoute } from "./lib/protected-route";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { AuthProvider } from "./hooks/use-auth";
 
 function Router() {
