@@ -38,6 +38,7 @@ export default function MeetingRoom() {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const remoteVideoRefs = useRef<Map<number, HTMLVideoElement>>(new Map());
+  const videoInitializationAttempted = useRef<boolean>(false);
   
   // Check camera and microphone permissions
   useEffect(() => {
@@ -132,12 +133,48 @@ export default function MeetingRoom() {
           
           if (localVideoRef.current) {
             console.log("Setting video element source to media stream");
-            localVideoRef.current.srcObject = mediaStream;
             
-            // Force visibility and ensure stream is attached
+            // Force visibility for video element
             localVideoRef.current.style.display = "block";
             
-            // Ensure the video plays
+            // Explicitly set important video properties
+            localVideoRef.current.autoplay = true;
+            localVideoRef.current.playsInline = true;
+            localVideoRef.current.muted = true;
+            
+            // Clear and reset any existing srcObject
+            if (localVideoRef.current.srcObject) {
+              localVideoRef.current.srcObject = null;
+            }
+            
+            // Apply the stream to the video element
+            localVideoRef.current.srcObject = mediaStream;
+            
+            // CRITICAL: Make sure video is actually shown by setting z-index and other properties 
+            localVideoRef.current.style.zIndex = "5";
+            localVideoRef.current.style.objectFit = "cover";
+            localVideoRef.current.style.backgroundColor = "#000";
+            
+            console.log("Video properties set:", {
+              display: localVideoRef.current.style.display,
+              autoplay: localVideoRef.current.autoplay,
+              srcObject: !!localVideoRef.current.srcObject,
+              videoTracks: mediaStream.getVideoTracks().length
+            });
+            
+            // Add a small delay before trying to play (helps in some browser environments)
+            setTimeout(async () => {
+              try {
+                if (localVideoRef.current) {
+                  await localVideoRef.current.play();
+                  console.log("Video is now playing after timeout");
+                }
+              } catch (delayedPlayError) {
+                console.error("Error playing video after timeout:", delayedPlayError);
+              }
+            }, 100);
+            
+            // Immediate attempt to play
             try {
               await localVideoRef.current.play();
               console.log("Video is now playing");
@@ -149,9 +186,33 @@ export default function MeetingRoom() {
                 playPromise.catch(() => {
                   // Show a message to the user that they need to interact
                   toast({
-                    title: "Video Playback",
+                    title: "Camera Access",
                     description: "Please click on the video area to enable your camera feed.",
                   });
+                  
+                  // Add a visible indicator that user needs to click
+                  const container = document.getElementById('local-video-container');
+                  if (container) {
+                    const clickPrompt = document.createElement('div');
+                    clickPrompt.innerText = "Click to enable camera";
+                    clickPrompt.style.position = "absolute";
+                    clickPrompt.style.top = "50%";
+                    clickPrompt.style.left = "50%";
+                    clickPrompt.style.transform = "translate(-50%, -50%)";
+                    clickPrompt.style.color = "white";
+                    clickPrompt.style.backgroundColor = "rgba(0,0,0,0.7)";
+                    clickPrompt.style.padding = "8px 12px";
+                    clickPrompt.style.borderRadius = "4px";
+                    clickPrompt.style.zIndex = "10";
+                    container.appendChild(clickPrompt);
+                    
+                    // Remove the prompt after click
+                    container.onclick = () => {
+                      if (clickPrompt.parentNode) {
+                        clickPrompt.parentNode.removeChild(clickPrompt);
+                      }
+                    };
+                  }
                 });
               }
             }
@@ -193,6 +254,43 @@ export default function MeetingRoom() {
       }
     };
   }, [toast, cameraEnabled, micEnabled]);
+
+  // Extra video initialization to ensure video element is properly configured
+  useEffect(() => {
+    if (localVideoRef.current && localStreamRef.current && !videoInitializationAttempted.current) {
+      videoInitializationAttempted.current = true;
+      console.log("Running additional video initialization for local video element");
+      
+      // Force direct styling for better compatibility
+      const videoElement = localVideoRef.current;
+      videoElement.style.display = "block";
+      videoElement.style.visibility = "visible";
+      videoElement.style.width = "100%";
+      videoElement.style.height = "100%";
+      videoElement.style.objectFit = "cover";
+      videoElement.style.borderRadius = "8px";
+      videoElement.style.backgroundColor = "#000000";
+      videoElement.style.zIndex = "5";
+      
+      // Reset source object with a delay
+      videoElement.srcObject = null;
+      setTimeout(() => {
+        if (videoElement && localStreamRef.current) {
+          videoElement.srcObject = localStreamRef.current;
+          videoElement.play()
+            .then(() => console.log("Video playing after additional initialization"))
+            .catch(err => {
+              console.error("Failed to play after additional initialization:", err);
+              // Try one more time with additional user interaction prompt
+              toast({
+                title: "Camera Feed",
+                description: "Please click on your video area to enable camera feed",
+              });
+            });
+        }
+      }, 500);
+    }
+  }, [localVideoRef.current, localStreamRef.current, toast]);
 
   // Fetch meeting data
   const { data: meeting, isLoading: isLoadingMeeting } = useQuery({
@@ -518,6 +616,34 @@ export default function MeetingRoom() {
     }
   }, [meeting, isLoadingMeeting, navigate, toast]);
   
+  // Effect to ensure remote videos play properly when streams are added
+  useEffect(() => {
+    // Loop through all webrtcParticipants with streams and make sure they play
+    webrtcParticipants.forEach(participant => {
+      if (participant.stream) {
+        const videoElement = remoteVideoRefs.current.get(participant.userId);
+        if (videoElement && videoElement.paused) {
+          console.log(`Found paused video for participant ${participant.userId}, attempting to play`);
+          
+          // Force direct styling for better compatibility
+          videoElement.style.display = "block";
+          videoElement.style.visibility = "visible";
+          videoElement.style.width = "100%";
+          videoElement.style.height = "100%";
+          videoElement.style.objectFit = "cover";
+          videoElement.style.borderRadius = "8px";
+          videoElement.style.backgroundColor = "#000000";
+          videoElement.style.zIndex = "5";
+          
+          // Try to play
+          videoElement.play()
+            .then(() => console.log(`Successfully started playback for participant ${participant.userId}`))
+            .catch(err => console.error(`Failed to play video for participant ${participant.userId}:`, err));
+        }
+      }
+    });
+  }, [webrtcParticipants]); // Re-run when participants list changes
+
   // Handle remote participant streams with WebRTC
   const handleParticipantJoined = useCallback((participant: any) => {
     console.log(`Participant joined: ${participant.displayName} (${participant.userId})`);
@@ -551,6 +677,13 @@ export default function MeetingRoom() {
       track.enabled = true;
     });
     
+    // For all video tracks, ensure they're enabled and log their settings
+    stream.getVideoTracks().forEach((track, index) => {
+      console.log(`Remote video track ${index}: enabled=${track.enabled}, readyState=${track.readyState}`);
+      console.log(`Remote video track ${index} settings:`, track.getSettings());
+      track.enabled = true;
+    });
+    
     setRemoteStreams(prev => {
       const newStreams = new Map(prev);
       newStreams.set(userId, stream);
@@ -561,41 +694,93 @@ export default function MeetingRoom() {
       prev.map(p => p.userId === userId ? { ...p, stream } : p)
     );
     
-    // Attach stream to video element
-    const videoElement = remoteVideoRefs.current.get(userId);
-    if (videoElement) {
-      console.log(`Attaching stream to video element for participant ${userId}`);
-      videoElement.srcObject = stream;
-      
-      // Force autoplay to ensure audio plays without interaction
-      videoElement.muted = false;
-      videoElement.autoplay = true;
-      
-      // Ensure video is visible
-      videoElement.style.display = "block";
-      
-      // Try to play and handle potential autoplay restrictions
-      videoElement.play()
-        .then(() => console.log(`Successfully playing remote stream for participant ${userId}`))
-        .catch(error => {
-          console.error(`Error playing remote video for user ${userId}:`, error);
-          
-          // Show a toast to prompt user interaction
-          toast({
-            title: "Media Playback",
-            description: "Please click on participant videos to hear and see them.",
-          });
-          
-          // Add a click handler to play on user interaction
-          videoElement.onclick = () => {
+    // Immediately try to attach the stream to the video element
+    const attachStreamToVideo = () => {
+      const videoElement = remoteVideoRefs.current.get(userId);
+      if (videoElement) {
+        console.log(`Attaching stream to video element for participant ${userId}`);
+        
+        // Reset video element properties
+        if (videoElement.srcObject) {
+          videoElement.srcObject = null;
+        }
+        
+        // Set critical video properties
+        videoElement.muted = false;
+        videoElement.autoplay = true;
+        videoElement.playsInline = true;
+        videoElement.style.display = "block";
+        videoElement.style.zIndex = "5";
+        videoElement.style.position = "relative";
+        videoElement.style.backgroundColor = "#000000";
+        
+        // Apply the stream
+        videoElement.srcObject = stream;
+        
+        // Using a timeout to help with browser quirks
+        setTimeout(() => {
+          if (videoElement) {
             videoElement.play()
-              .then(() => console.log(`Successfully playing remote stream after click for participant ${userId}`))
-              .catch(err => console.error(`Still failed to play after click:`, err));
-          };
-        });
-    } else {
-      console.warn(`No video element found for participant ${userId}`);
-    }
+              .then(() => console.log(`Successfully playing remote stream for participant ${userId} after timeout`))
+              .catch(delayedError => {
+                console.error(`Error playing remote video for user ${userId} after timeout:`, delayedError);
+              });
+          }
+        }, 100);
+        
+        // Try to play immediately too
+        videoElement.play()
+          .then(() => console.log(`Successfully playing remote stream for participant ${userId}`))
+          .catch(error => {
+            console.error(`Error playing remote video for user ${userId}:`, error);
+            
+            // Show a toast to prompt user interaction
+            toast({
+              title: "Media Playback",
+              description: "Please click on participant videos to hear and see them.",
+            });
+            
+            // Add a visual indicator that clicking is needed
+            const parent = videoElement.parentElement;
+            if (parent) {
+              const clickPrompt = document.createElement('div');
+              clickPrompt.innerText = "Click to see video";
+              clickPrompt.style.position = "absolute";
+              clickPrompt.style.top = "50%";
+              clickPrompt.style.left = "50%";
+              clickPrompt.style.transform = "translate(-50%, -50%)";
+              clickPrompt.style.color = "white";
+              clickPrompt.style.backgroundColor = "rgba(0,0,0,0.7)";
+              clickPrompt.style.padding = "8px 12px";
+              clickPrompt.style.borderRadius = "4px";
+              clickPrompt.style.zIndex = "10";
+              parent.appendChild(clickPrompt);
+              
+              // Add a click handler to play on user interaction and remove the prompt
+              parent.onclick = () => {
+                if (videoElement) {
+                  videoElement.play()
+                    .then(() => {
+                      console.log(`Successfully playing remote stream after click for participant ${userId}`);
+                      if (clickPrompt.parentNode) {
+                        clickPrompt.parentNode.removeChild(clickPrompt);
+                      }
+                    })
+                    .catch(err => console.error(`Still failed to play after click:`, err));
+                }
+              };
+            }
+          });
+      } else {
+        console.warn(`No video element found for participant ${userId}, will retry in 1 second`);
+        // Retry after a delay to catch elements that might be created later
+        setTimeout(attachStreamToVideo, 1000);
+      }
+    };
+    
+    // Start the stream attachment process
+    attachStreamToVideo();
+    
   }, [toast]);
   
   const handleMeetingEnded = useCallback(() => {
@@ -921,16 +1106,51 @@ export default function MeetingRoom() {
                   {/* Local Video */}
                   <div 
                     id="local-video-container"
-                    className={`${isMiniView ? 'fixed bottom-20 right-4 w-64 z-50' : 'bg-gray-800 rounded-lg overflow-hidden aspect-video'} relative min-h-[240px]`}>
+                    className={`${isMiniView ? 'fixed bottom-20 right-4 w-64 z-50' : 'bg-gray-800 rounded-lg overflow-hidden aspect-video'} relative min-h-[240px]`}
+                    style={{ position: 'relative' }}
+                  >
+                    {/* Fallback avatar - only shown when video isn't visible */}
+                    <div className="absolute inset-0 flex items-center justify-center z-0">
+                      <div className="w-20 h-20 bg-blue-600 rounded-full flex items-center justify-center text-white text-xl font-medium">
+                        {user?.displayName?.charAt(0) || user?.username?.charAt(0) || '?'}
+                      </div>
+                    </div>
+                    
+                    {/* Actual video element with higher z-index to overlay the avatar when active */}
                     <video
+                      id="local-video-element"
                       ref={localVideoRef}
                       autoPlay
                       playsInline
                       muted
                       className="w-full h-full object-cover rounded-lg"
+                      style={{ 
+                        position: 'relative', 
+                        zIndex: 5,
+                        backgroundColor: '#000000',
+                        display: 'block',
+                        visibility: 'visible'
+                      }}
                       onClick={() => {
+                        // Force play on click for browsers that require interaction
                         if (localVideoRef.current) {
-                          localVideoRef.current.play().catch(err => console.error("Play error:", err));
+                          console.log("Video clicked, forcing play");
+                          localVideoRef.current.style.display = 'block';
+                          localVideoRef.current.style.visibility = 'visible';
+                          
+                          // Reset video source as a fallback approach
+                          if (localStreamRef.current) {
+                            localVideoRef.current.srcObject = null;
+                            setTimeout(() => {
+                              if (localVideoRef.current && localStreamRef.current) {
+                                localVideoRef.current.srcObject = localStreamRef.current;
+                              }
+                            }, 100);
+                          }
+                          
+                          localVideoRef.current.play()
+                            .then(() => console.log("Video playing after click"))
+                            .catch(err => console.error("Play error after click:", err));
                         }
                       }}
                     />
@@ -1013,22 +1233,60 @@ export default function MeetingRoom() {
                         
                         return (
                           <div key={participant.id} className="bg-gray-800 rounded-lg overflow-hidden aspect-video relative">
-                            {hasStream ? (
-                              // Show remote video stream
+                            {/* Avatar placeholder - always visible unless video is rendering properly */}
+                            <div className="w-full h-full flex items-center justify-center absolute inset-0 z-0">
+                              <div className="bg-gray-700 rounded-full h-24 w-24 flex items-center justify-center text-3xl text-white">
+                                {participant.user.displayName.charAt(0)}
+                              </div>
+                            </div>
+                            
+                            {hasStream && (
+                              // Show remote video stream with z-index to go on top of avatar
                               <video
                                 ref={videoRef}
                                 autoPlay
                                 playsInline
                                 className="w-full h-full object-cover"
                                 id={`remote-video-${participant.user.id}`}
+                                style={{ 
+                                  position: 'relative',
+                                  zIndex: 5,
+                                  backgroundColor: '#000000',
+                                  display: 'block',
+                                  visibility: 'visible',
+                                  width: '100%',
+                                  height: '100%',
+                                  borderRadius: '8px'
+                                }}
+                                onClick={(e) => {
+                                  // Force play on click for browsers that require interaction
+                                  console.log(`Video clicked for participant ${participant.user.id}, forcing play`);
+                                  if (e.currentTarget) {
+                                    // Make sure the video is visible
+                                    e.currentTarget.style.display = 'block';
+                                    e.currentTarget.style.visibility = 'visible';
+                                    
+                                    // Reset video source as a fallback approach
+                                    const stream = e.currentTarget.srcObject;
+                                    if (stream) {
+                                      e.currentTarget.srcObject = null;
+                                      setTimeout(() => {
+                                        if (e.currentTarget) {
+                                          e.currentTarget.srcObject = stream;
+                                          e.currentTarget.play()
+                                            .then(() => console.log(`Remote video for ${participant.user.id} playing after click`))
+                                            .catch(err => console.error(`Error playing video for ${participant.user.id} after click:`, err));
+                                        }
+                                      }, 100);
+                                    } else {
+                                      // Try to play anyway
+                                      e.currentTarget.play()
+                                        .then(() => console.log(`Remote video for ${participant.user.id} playing after click`))
+                                        .catch(err => console.error(`Error playing video for ${participant.user.id}:`, err));
+                                    }
+                                  }
+                                }}
                               />
-                            ) : (
-                              // Show avatar placeholder
-                              <div className="w-full h-full flex items-center justify-center">
-                                <div className="bg-gray-700 rounded-full h-24 w-24 flex items-center justify-center text-3xl text-white">
-                                  {participant.user.displayName.charAt(0)}
-                                </div>
-                              </div>
                             )}
                             
                             {/* Remote video controls */}

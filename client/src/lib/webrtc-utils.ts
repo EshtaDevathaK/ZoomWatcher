@@ -76,11 +76,44 @@ export function addMediaStreamToPeerConnection(peerConnection: RTCPeerConnection
     }
   });
   
+  // First ensure all tracks are enabled by default
+  stream.getTracks().forEach(track => {
+    // The enabled property controls whether the track is active
+    if (!track.enabled) {
+      console.log(`Enabling initially disabled ${track.kind} track before adding to peer connection`);
+      track.enabled = true;
+    }
+  });
+  
   // Log audio tracks to help with debugging
   const audioTracks = stream.getAudioTracks();
   console.log(`Number of audio tracks to add: ${audioTracks.length}`);
   audioTracks.forEach((track, index) => {
     console.log(`Audio track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+  });
+  
+  // Debug and fix video tracks
+  const videoTracks = stream.getVideoTracks();
+  console.log(`Number of video tracks to add: ${videoTracks.length}`);
+  videoTracks.forEach((track, index) => {
+    const settings = track.getSettings();
+    console.log(`Video track ${index} settings:`, settings);
+    
+    // Ensure video track is properly initialized
+    if (!track.enabled) {
+      console.log(`Enabling video track that was disabled`);
+      track.enabled = true;
+    }
+    
+    // Force constraints if needed in Replit environment
+    if (!settings.width || !settings.height || settings.width < 100 || settings.height < 100) {
+      console.log(`Detected problematic video track dimensions, attempting to fix...`);
+      track.applyConstraints({
+        width: { ideal: 640 },
+        height: { ideal: 480 },
+        frameRate: { ideal: 30 }
+      }).catch(err => console.error("Could not apply video constraints:", err));
+    }
   });
   
   // Now add all tracks from the stream
