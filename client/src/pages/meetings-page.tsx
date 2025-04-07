@@ -31,9 +31,11 @@ export default function MeetingsPage() {
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const [activeMeeting, setActiveMeeting] = useState<any>(null);
+  
+
 
   // Fetch meetings
-  const { data: meetings, isLoading: isLoadingMeetings } = useQuery({
+  const { data: meetings = [], isLoading: isLoadingMeetings } = useQuery<any[]>({
     queryKey: ["/api/meetings"],
   });
 
@@ -135,14 +137,7 @@ export default function MeetingsPage() {
     }
   };
 
-  // Copy meeting code to clipboard
-  const copyMeetingCode = (code: string) => {
-    navigator.clipboard.writeText(code);
-    toast({
-      title: "Meeting code copied",
-      description: "The meeting code has been copied to clipboard.",
-    });
-  };
+
 
   // Copy meeting link to clipboard
   const copyMeetingLink = (code: string) => {
@@ -194,7 +189,13 @@ export default function MeetingsPage() {
                       variant="ghost"
                       size="sm"
                       className="p-1 h-auto"
-                      onClick={() => copyMeetingCode(activeMeeting.meetingCode)}
+                      onClick={() => {
+                        navigator.clipboard.writeText(activeMeeting.meetingCode);
+                        toast({
+                          title: "Meeting code copied",
+                          description: "The meeting code has been copied to clipboard. Share this with others to invite them.",
+                        });
+                      }}
                     >
                       <Copy className="h-4 w-4" />
                     </Button>
@@ -347,7 +348,7 @@ export default function MeetingsPage() {
               <div className="flex justify-center my-8">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
               </div>
-            ) : meetings && meetings.length > 0 ? (
+            ) : meetings.length > 0 ? (
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-gray-200">
                   <thead className="bg-gray-50">
@@ -379,7 +380,23 @@ export default function MeetingsPage() {
                           {new Date(meeting.createdAt).toLocaleString()}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                          {meeting.meetingCode}
+                          <div className="flex items-center">
+                            <span>{meeting.meetingCode}</span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="p-1 h-auto ml-2"
+                              onClick={() => {
+                                navigator.clipboard.writeText(meeting.meetingCode);
+                                toast({
+                                  title: "Meeting code copied",
+                                  description: "The meeting code has been copied to clipboard. Share this with others to invite them.",
+                                });
+                              }}
+                            >
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                          </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                           {meeting.isActive ? (
