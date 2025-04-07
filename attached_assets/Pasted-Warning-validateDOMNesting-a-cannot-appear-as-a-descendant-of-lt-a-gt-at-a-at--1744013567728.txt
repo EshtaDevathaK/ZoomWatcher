@@ -1,0 +1,39 @@
+Warning: validateDOMNesting(...): <a> cannot appear as a descendant of &lt;a&gt;.
+    at a
+    at a
+    at https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=3704ed97:337:18
+    at li
+    at ul
+    at div
+    at nav
+    at Sidebar (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/src/components/layout/sidebar.tsx:27:36)
+    at div
+    at MeetingsPage (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/src/pages/meetings-page.tsx:40:21)
+    at Route (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=3704ed97:323:16)
+    at ProtectedRoute (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/src/lib/protected-route.tsx:22:3)
+    at Switch (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=3704ed97:379:17)
+    at Router
+    at AuthProvider (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/src/hooks/use-auth.tsx:26:32)
+    at App (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/src/App.tsx?v=lcojw7aiJs_h2OVw7HyzP:76:3)
+    at QueryClientProvider (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@tanstack_react-query.js?v=3704ed97:2805:3)
+at a
+at a
+at https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=3704ed97:337:18
+at li
+at ul
+at div
+at nav
+at Sidebar (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/src/components/layout/sidebar.tsx:27:36)
+at div
+at MeetingsPage (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/src/pages/meetings-page.tsx:40:21)
+at Route (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=3704ed97:323:16)
+at ProtectedRoute (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/src/lib/protected-route.tsx:22:3)
+at Switch (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/wouter.js?v=3704ed97:379:17)
+at Router
+at AuthProvider (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/src/hooks/use-auth.tsx:26:32)
+at App (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/src/App.tsx?v=lcojw7aiJs_h2OVw7HyzP:76:3)
+at QueryClientProvider (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/@fs/home/runner/workspace/node_modules/.vite/deps/@tanstack_react-query.js?v=3704ed97:2805:3)
+at t.value (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:17465)
+at new t (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:12630)
+at t.value (https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/__replco/static/devtools/eruda/3.2.3/eruda.js:2:32766)
+at https://8809e100-26dd-4a67-8e84-94bf7eafcae1-00-1fyhqdtomf3dh.janeway.replit.dev/__replco/static/devtools/eru

@@ -314,6 +314,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Connection is alive, nothing to do
     });
     
+    // Set up an error handler for WebSocket
+    ws.on('error', (error) => {
+      console.error('WebSocket error:', error);
+    });
+    
     ws.on('message', async (message) => {
       try {
         const parsedMessage = JSON.parse(message.toString()) as WebSocketMessage;
@@ -349,16 +354,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // Notify other participants that this user has joined
             connectionsMap.forEach((conn, connUserId) => {
               if (connUserId !== userId && conn.socket.readyState === WebSocket.OPEN) {
-                conn.socket.send(JSON.stringify({
-                  type: 'user-joined',
-                  meetingId,
-                  from: parsedMessage.from
-                }));
+                try {
+                  conn.socket.send(JSON.stringify({
+                    type: 'user-joined',
+                    meetingId,
+                    from: parsedMessage.from
+                  }));
+                } catch (error) {
+                  console.error(`Error notifying participant ${connUserId} about new participant:`, error);
+                }
               }
             });
             
             // Send list of all current participants to the newly joined user
-            const participants: any[] = [];
+            const participants: Array<{
+              userId: number;
+              username: string;
+              displayName: string;
+            }> = [];
+            
             connectionsMap.forEach((conn, connUserId) => {
               if (connUserId !== userId) {
                 participants.push({
@@ -369,11 +383,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
               }
             });
             
-            ws.send(JSON.stringify({
-              type: 'participants-list',
-              meetingId,
-              data: { participants }
-            }));
+            try {
+              ws.send(JSON.stringify({
+                type: 'participants-list',
+                meetingId,
+                data: { participants }
+              }));
+              
+              // Log that participant list was sent successfully
+              console.log(`Sent participants list to user ${userId} with ${participants.length} other participants`);
+            } catch (error) {
+              console.error(`Error sending participants list to user ${userId}:`, error);
+            }
             break;
             
           case 'offer':
@@ -388,9 +409,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 const targetConn = connectionsMap.get(targetUserId);
                 
                 if (targetConn && targetConn.socket.readyState === WebSocket.OPEN) {
-                  console.log(`Forwarding ${parsedMessage.type} from ${userId} to ${targetUserId}`);
-                  targetConn.socket.send(JSON.stringify(parsedMessage));
+                  try {
+                    console.log(`Forwarding ${parsedMessage.type} from ${userId} to ${targetUserId}`);
+                    
+                    // For ICE candidates, make sure they are properly formatted
+                    if (parsedMessage.type === 'ice-candidate' && !parsedMessage.data.candidate) {
+                      console.error('Missing ICE candidate in message:', parsedMessage);
+                    } else {
+                      targetConn.socket.send(JSON.stringify(parsedMessage));
+                    }
+                  } catch (error) {
+                    console.error(`Error forwarding ${parsedMessage.type} to user ${targetUserId}:`, error);
+                  }
+                } else {
+                  console.warn(`Cannot forward ${parsedMessage.type} to user ${targetUserId}: user not connected or socket not open`);
                 }
+              } else {
+                console.warn(`Cannot forward ${parsedMessage.type}: meeting ${meetingId} not found in connections map`);
               }
             }
             break;
@@ -401,9 +436,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
               const connectionsMap = meetingConnections.get(meetingId);
               
               if (connectionsMap) {
+                const mediaType = parsedMessage.data.mediaType;
+                const enabled = parsedMessage.data.enabled;
+                
+                console.log(`Broadcasting media state change from user ${userId}: ${mediaType}=${enabled}`);
+                
                 connectionsMap.forEach((conn, connUserId) => {
                   if (connUserId !== userId && conn.socket.readyState === WebSocket.OPEN) {
-                    conn.socket.send(JSON.stringify(parsedMessage));
+                    try {
+                      conn.socket.send(JSON.stringify(parsedMessage));
+                    } catch (error) {
+                      console.error(`Error broadcasting media state to user ${connUserId}:`, error);
+                    }
                   }
                 });
               }
@@ -417,8 +461,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     ws.on('close', () => {
       // Remove this connection when the socket is closed
-      if (meetingId && userId && userInfo) {
-        console.log(`User ${userInfo.displayName} (${userId}) disconnected from meeting ${meetingId}`);
+      if (meetingId && userId) {
+        const userDisplayName = userInfo ? userInfo.displayName : "Unknown";
+        console.log(`User ${userDisplayName} (${userId}) disconnected from meeting ${meetingId}`);
         
         const connectionsMap = meetingConnections.get(meetingId);
         
@@ -429,21 +474,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Notify other participants that this user has left
           connectionsMap.forEach((conn) => {
             if (conn.socket.readyState === WebSocket.OPEN) {
-              conn.socket.send(JSON.stringify({
-                type: 'user-left',
-                meetingId,
-                from: {
-                  userId,
-                  username: userInfo.username,
-                  displayName: userInfo.displayName
-                }
-              }));
+              try {
+                conn.socket.send(JSON.stringify({
+                  type: 'user-left',
+                  meetingId,
+                  from: {
+                    userId,
+                    username: userInfo ? userInfo.username : "unknown",
+                    displayName: userInfo ? userInfo.displayName : "Unknown User"
+                  }
+                }));
+              } catch (error) {
+                console.error(`Error notifying participant ${conn.userId} about user leaving:`, error);
+              }
             }
           });
           
           // If no more connections for this meeting, remove the meeting entry
           if (connectionsMap.size === 0) {
             meetingConnections.delete(meetingId);
+            console.log(`No more participants in meeting ${meetingId}, removing from active meetings`);
           }
         }
       }

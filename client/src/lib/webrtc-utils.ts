@@ -2,13 +2,21 @@
  * WebRTC utilities for peer-to-peer connections in meetings
  */
 
-// Configuration for WebRTC peer connections
-const iceServers = {
+// Configuration for WebRTC peer connections with enhanced server list
+const iceServers: RTCConfiguration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    { urls: 'stun:stun.ekiga.net' },
+    { urls: 'stun:stun.ideasip.com' },
+    { urls: 'stun:stun.schlund.de' },
   ],
+  iceCandidatePoolSize: 10,
+  bundlePolicy: 'max-bundle' as RTCBundlePolicy,
+  rtcpMuxPolicy: 'require' as RTCRtcpMuxPolicy
 };
 
 /**
@@ -76,8 +84,28 @@ export function addMediaStreamToPeerConnection(peerConnection: RTCPeerConnection
     }
   });
   
-  // First ensure all tracks are enabled by default
+  // First check if stream is valid and has tracks
+  if (!stream) {
+    console.error("Cannot add null stream to peer connection");
+    return;
+  }
+  
+  const allTracks = stream.getTracks();
+  if (allTracks.length === 0) {
+    console.error("Stream has no tracks to add to peer connection");
+    return;
+  }
+  
+  console.log(`Stream has ${allTracks.length} total tracks to process`);
+  
+  // First ensure all tracks are properly initialized and enabled by default
+  // The actual muting/unmuting will be controlled via the 'enabled' property later
   stream.getTracks().forEach(track => {
+    // Make sure the track is not stopped
+    if (track.readyState === 'ended') {
+      console.warn(`Track ${track.id} (${track.kind}) is in 'ended' state and may not work`);
+    }
+    
     // The enabled property controls whether the track is active
     if (!track.enabled) {
       console.log(`Enabling initially disabled ${track.kind} track before adding to peer connection`);
@@ -85,42 +113,120 @@ export function addMediaStreamToPeerConnection(peerConnection: RTCPeerConnection
     }
   });
   
-  // Log audio tracks to help with debugging
+  // Process audio tracks specifically
   const audioTracks = stream.getAudioTracks();
   console.log(`Number of audio tracks to add: ${audioTracks.length}`);
-  audioTracks.forEach((track, index) => {
-    console.log(`Audio track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
-  });
   
-  // Debug and fix video tracks
+  if (audioTracks.length === 0) {
+    console.warn("No audio tracks found in the stream - participants may not hear audio");
+  } else {
+    audioTracks.forEach((track, index) => {
+      console.log(`Audio track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+      
+      // Ensure audio track is enabled (not muted by default)
+      // The UI controls will toggle this as needed
+      track.enabled = true;
+      
+      // Apply audio constraints for better quality
+      try {
+        track.applyConstraints({
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }).catch(err => console.log("Could not apply audio constraints:", err));
+      } catch (e) {
+        console.log("Error applying audio constraints:", e);
+      }
+    });
+  }
+  
+  // Process video tracks specifically
   const videoTracks = stream.getVideoTracks();
   console.log(`Number of video tracks to add: ${videoTracks.length}`);
-  videoTracks.forEach((track, index) => {
-    const settings = track.getSettings();
-    console.log(`Video track ${index} settings:`, settings);
-    
-    // Ensure video track is properly initialized
-    if (!track.enabled) {
-      console.log(`Enabling video track that was disabled`);
+  
+  if (videoTracks.length === 0) {
+    console.warn("No video tracks found in the stream - participants may not see video");
+  } else {
+    videoTracks.forEach((track, index) => {
+      const settings = track.getSettings();
+      console.log(`Video track ${index} settings:`, settings);
+      
+      // Ensure video track is properly initialized and enabled
       track.enabled = true;
-    }
+      
+      // Force constraints if needed for better video quality and compatibility
+      try {
+        // If dimensions are missing or very low, try to set reasonable defaults
+        if (!settings.width || !settings.height || settings.width < 100 || settings.height < 100) {
+          console.log(`Detected problematic video dimensions, attempting to fix...`);
+          track.applyConstraints({
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            frameRate: { ideal: 30 }
+          }).catch(err => console.error("Could not apply video constraints:", err));
+        }
+        // If frame rate is too low or not set, try to improve it
+        else if (!settings.frameRate || settings.frameRate < 15) {
+          console.log(`Detected low frame rate (${settings.frameRate}), attempting to improve...`);
+          track.applyConstraints({
+            frameRate: { ideal: 30, min: 15 }
+          }).catch(err => console.error("Could not apply frame rate constraint:", err));
+        }
+      } catch (e) {
+        console.log("Error applying video constraints:", e);
+      }
+    });
+  }
+  
+  // Now add all tracks from the stream to the peer connection
+  stream.getTracks().forEach(track => {
+    console.log(`Adding track to peer connection: ${track.kind}, ID: ${track.id}, enabled: ${track.enabled}, readyState: ${track.readyState}`);
     
-    // Force constraints if needed in Replit environment
-    if (!settings.width || !settings.height || settings.width < 100 || settings.height < 100) {
-      console.log(`Detected problematic video track dimensions, attempting to fix...`);
-      track.applyConstraints({
-        width: { ideal: 640 },
-        height: { ideal: 480 },
-        frameRate: { ideal: 30 }
-      }).catch(err => console.error("Could not apply video constraints:", err));
+    try {
+      // This is where we actually add the track to the connection for transmission
+      peerConnection.addTrack(track, stream);
+    } catch (e) {
+      console.error(`Failed to add ${track.kind} track to peer connection:`, e);
     }
   });
   
-  // Now add all tracks from the stream
-  stream.getTracks().forEach(track => {
-    console.log(`Adding track to peer connection: ${track.kind}, ID: ${track.id}, enabled: ${track.enabled}`);
-    peerConnection.addTrack(track, stream);
-  });
+  // Set up quality parameters to help with performance
+  try {
+    const transceivers = peerConnection.getTransceivers();
+    transceivers.forEach(transceiver => {
+      if (transceiver.sender && transceiver.sender.track) {
+        // Set different encoding parameters based on track type
+        const trackType = transceiver.sender.track.kind;
+        
+        // Get current parameters (avoid mutation)
+        const params = transceiver.sender.getParameters();
+        
+        if (trackType === 'audio') {
+          // For audio, we just set degradation preference to maintain framerate
+          if (params.degradationPreference !== 'maintain-framerate') {
+            params.degradationPreference = 'maintain-framerate';
+            try {
+              transceiver.sender.setParameters(params);
+            } catch (err) {
+              console.log("Could not set audio parameters:", err);
+            }
+          }
+        } else if (trackType === 'video') {
+          // For video, we set degradation to balanced
+          if (params.degradationPreference !== 'balanced') {
+            params.degradationPreference = 'balanced';
+            try {
+              transceiver.sender.setParameters(params);
+            } catch (err) {
+              console.log("Could not set video parameters:", err);
+            }
+          }
+        }
+      }
+    });
+  } catch (e) {
+    console.log("Error setting quality parameters:", e);
+  }
 }
 
 /**

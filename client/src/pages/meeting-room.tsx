@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { Meeting, Participant, UserSettings } from "@shared/schema";
 import { useLocation, useParams } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -293,21 +294,21 @@ export default function MeetingRoom() {
   }, [localVideoRef.current, localStreamRef.current, toast]);
 
   // Fetch meeting data
-  const { data: meeting, isLoading: isLoadingMeeting } = useQuery({
+  const { data: meeting, isLoading: isLoadingMeeting } = useQuery<Meeting>({
     queryKey: [`/api/meetings/${meetingId}`],
     enabled: !isNaN(meetingId),
     refetchInterval: 10000, // Poll every 10 seconds to check if meeting is still active
   });
 
   // Fetch participants
-  const { data: participants, isLoading: isLoadingParticipants } = useQuery({
+  const { data: participants, isLoading: isLoadingParticipants } = useQuery<Participant[]>({
     queryKey: [`/api/meetings/${meetingId}/participants`],
     enabled: !isNaN(meetingId) && !!meeting,
     refetchInterval: 5000, // Poll every 5 seconds to update participants
   });
 
   // Fetch user settings
-  const { data: settings } = useQuery({
+  const { data: settings } = useQuery<UserSettings>({
     queryKey: ["/api/settings"],
     enabled: !!user && permissionsGranted,
   });
@@ -387,7 +388,7 @@ export default function MeetingRoom() {
             });
           });
       } else {
-        // Toggle existing audio tracks
+        // Toggle ONLY audio tracks - Don't touch video
         audioTracks.forEach((track, index) => {
           console.log(`Toggling audio track ${index} from ${track.enabled} to ${!micEnabled}`);
           track.enabled = !micEnabled;
@@ -440,7 +441,7 @@ export default function MeetingRoom() {
             });
           });
       } else {
-        // Toggle existing video tracks
+        // Toggle ONLY video tracks - Don't touch audio
         videoTracks.forEach((track, index) => {
           console.log(`Toggling video track ${index} from ${track.enabled} to ${!cameraEnabled}`);
           track.enabled = !cameraEnabled;
@@ -534,7 +535,8 @@ export default function MeetingRoom() {
   // Copy meeting info to clipboard
   const copyMeetingInfo = () => {
     if (meeting) {
-      const info = `Meeting: ${meeting.name}\nMeeting Code: ${meeting.meetingCode}\nLink: ${window.location.origin}/join/${meeting.meetingCode}`;
+      const meetingData = meeting as Meeting;
+      const info = `Meeting: ${meetingData.name}\nMeeting Code: ${meetingData.meetingCode}\nLink: ${window.location.origin}/join/${meetingData.meetingCode}`;
       navigator.clipboard.writeText(info);
       toast({
         title: "Meeting info copied",
@@ -546,8 +548,9 @@ export default function MeetingRoom() {
   // Invite participants
   const inviteParticipants = () => {
     if (meeting) {
-      const subject = encodeURIComponent(`Join my ZoomWatcher meeting: ${meeting.name}`);
-      const body = encodeURIComponent(`Join my ZoomWatcher meeting.\n\nMeeting name: ${meeting.name}\nMeeting code: ${meeting.meetingCode}\nLink: ${window.location.origin}/join/${meeting.meetingCode}`);
+      const meetingData = meeting as Meeting;
+      const subject = encodeURIComponent(`Join my ZoomWatcher meeting: ${meetingData.name}`);
+      const body = encodeURIComponent(`Join my ZoomWatcher meeting.\n\nMeeting name: ${meetingData.name}\nMeeting code: ${meetingData.meetingCode}\nLink: ${window.location.origin}/join/${meetingData.meetingCode}`);
       window.open(`mailto:?subject=${subject}&body=${body}`);
     }
   };
@@ -606,13 +609,16 @@ export default function MeetingRoom() {
 
   // If we can't find the meeting or it's not active, show an error
   useEffect(() => {
-    if (!isLoadingMeeting && meeting && !meeting.isActive) {
-      toast({
-        title: "Meeting Ended",
-        description: "This meeting has ended.",
-        variant: "destructive",
-      });
-      navigate("/meetings");
+    if (!isLoadingMeeting && meeting) {
+      const meetingData = meeting as Meeting;
+      if (!meetingData.isActive) {
+        toast({
+          title: "Meeting Ended",
+          description: "This meeting has ended.",
+          variant: "destructive",
+        });
+        navigate("/meetings");
+      }
     }
   }, [meeting, isLoadingMeeting, navigate, toast]);
   
@@ -965,17 +971,17 @@ export default function MeetingRoom() {
                   <h4 className="text-white text-sm font-medium mb-2">Host</h4>
                   <div className="flex items-center p-2 rounded hover:bg-gray-700">
                     <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium">
-                      {user && meeting.hostId === user.id 
+                      {user && (meeting as Meeting).hostId === user.id 
                         ? user.displayName?.charAt(0) || user.username.charAt(0)
-                        : participants
-                            ?.find((p: any) => p.user && p.user.id === meeting.hostId)
+                        : (participants as any[])
+                            ?.find((p: any) => p.user && p.user.id === (meeting as Meeting).hostId)
                             ?.user?.displayName?.charAt(0) || 'H'}
                     </div>
                     <span className="ml-2 text-white">
-                      {user && meeting.hostId === user.id 
+                      {user && (meeting as Meeting).hostId === user.id 
                         ? 'You (Host)'
-                        : participants
-                            ?.find((p: any) => p.user && p.user.id === meeting.hostId)
+                        : (participants as any[])
+                            ?.find((p: any) => p.user && p.user.id === (meeting as Meeting).hostId)
                             ?.user?.displayName || 'Host'}
                     </span>
                   </div>
@@ -987,7 +993,7 @@ export default function MeetingRoom() {
                   
                   {participants && participants.length > 0 ? (
                     participants
-                      .filter((p: any) => p.user && p.user.id !== meeting.hostId)
+                      .filter((p: any) => p.user && p.user.id !== (meeting as Meeting).hostId)
                       .map((participant: any) => (
                         <div key={participant.id} className="flex items-center p-2 rounded hover:bg-gray-700">
                           <div className="w-8 h-8 bg-gray-600 rounded-full flex items-center justify-center text-white font-medium">
@@ -1014,9 +1020,9 @@ export default function MeetingRoom() {
           <div className="bg-gray-800 p-4 border-b border-gray-700">
             <div className="container mx-auto flex justify-between items-center">
               <div>
-                <h1 className="text-white text-xl font-bold">{meeting.name}</h1>
+                <h1 className="text-white text-xl font-bold">{(meeting as Meeting).name}</h1>
                 <div className="flex items-center text-gray-300 mt-1">
-                  <span className="text-sm">Meeting Code: {meeting.meetingCode}</span>
+                  <span className="text-sm">Meeting Code: {(meeting as Meeting).meetingCode}</span>
                   <button 
                     className="ml-2 text-gray-400 hover:text-white"
                     onClick={copyMeetingInfo}
@@ -1049,11 +1055,11 @@ export default function MeetingRoom() {
                 
                 <button 
                   className="flex items-center bg-red-700 hover:bg-red-600 text-white px-3 py-2 rounded-lg"
-                  onClick={meeting.hostId === user?.id ? endMeeting : leaveMeeting}
-                  title={meeting.hostId === user?.id ? "End meeting" : "Leave meeting"}
+                  onClick={(meeting as Meeting).hostId === user?.id ? endMeeting : leaveMeeting}
+                  title={(meeting as Meeting).hostId === user?.id ? "End meeting" : "Leave meeting"}
                 >
                   <LogOut className="w-4 h-4 mr-1" />
-                  <span className="hidden sm:inline">{meeting.hostId === user?.id ? "End" : "Leave"}</span>
+                  <span className="hidden sm:inline">{(meeting as Meeting).hostId === user?.id ? "End" : "Leave"}</span>
                 </button>
               </div>
             </div>
@@ -1380,7 +1386,7 @@ export default function MeetingRoom() {
                   variant="destructive"
                   size="icon"
                   className="rounded-full w-12 h-12"
-                  onClick={meeting.hostId === user?.id ? endMeeting : leaveMeeting}
+                  onClick={(meeting as Meeting).hostId === user?.id ? endMeeting : leaveMeeting}
                   disabled={leaveMeetingMutation.isPending || endMeetingMutation.isPending}
                 >
                   {(leaveMeetingMutation.isPending || endMeetingMutation.isPending) ? (
