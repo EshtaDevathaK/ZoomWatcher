@@ -67,8 +67,17 @@ export async function createAnswer(
  * @param stream The MediaStream to add
  */
 export function addMediaStreamToPeerConnection(peerConnection: RTCPeerConnection, stream: MediaStream): void {
+  // First check if we already have senders for these tracks
+  const senders = peerConnection.getSenders();
+  const currentTracks = senders.map(sender => sender.track?.id);
+  
+  // Add each track from the stream if not already added
   stream.getTracks().forEach(track => {
-    peerConnection.addTrack(track, stream);
+    // Check if this track is already in the peer connection
+    if (!currentTracks.includes(track.id)) {
+      console.log(`Adding track to peer connection: ${track.kind}, ID: ${track.id}, enabled: ${track.enabled}`);
+      peerConnection.addTrack(track, stream);
+    }
   });
 }
 

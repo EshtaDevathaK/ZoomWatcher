@@ -229,17 +229,22 @@ export function useWebRTC({
             const mediaType = message.data.mediaType as 'audio' | 'video';
             const enabled = message.data.enabled as boolean;
             
+            console.log(`Received media state change: User ${fromUserId}, ${mediaType}=${enabled}`);
+            
             // Update participant's media state
             setParticipants(prev => {
               const newMap = new Map(prev);
               const participant = newMap.get(fromUserId);
               
               if (participant) {
+                // Initialize mediaState if it doesn't exist
                 const mediaState = participant.mediaState || { audio: true, video: true };
                 const updatedMediaState = {
                   ...mediaState,
                   [mediaType]: enabled
                 };
+                
+                console.log(`Updating participant ${fromUserId} media state:`, updatedMediaState);
                 
                 const updatedParticipant = {
                   ...participant,

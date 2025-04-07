@@ -801,6 +801,7 @@ export default function MeetingRoom() {
                             autoPlay
                             playsInline
                             className="w-full h-full object-cover"
+                            id={`remote-video-${participant.user.id}`}
                           />
                         ) : (
                           // Show avatar placeholder
@@ -808,6 +809,28 @@ export default function MeetingRoom() {
                             <div className="bg-gray-700 rounded-full h-24 w-24 flex items-center justify-center text-3xl text-white">
                               {participant.user.displayName.charAt(0)}
                             </div>
+                          </div>
+                        )}
+                        
+                        {/* Remote video controls */}
+                        {hasStream && (
+                          <div className="absolute top-2 right-2 flex space-x-2">
+                            <button 
+                              onClick={() => {
+                                const videoElement = document.getElementById(`remote-video-${participant.user.id}`);
+                                if (videoElement && videoElement instanceof HTMLVideoElement) {
+                                  if (document.fullscreenElement) {
+                                    document.exitFullscreen();
+                                  } else {
+                                    videoElement.requestFullscreen();
+                                  }
+                                }
+                              }}
+                              className="bg-black bg-opacity-50 rounded-full p-1 hover:bg-opacity-70 transition-all"
+                              title="Fullscreen"
+                            >
+                              <Maximize className="w-4 h-4 text-white" />
+                            </button>
                           </div>
                         )}
                         

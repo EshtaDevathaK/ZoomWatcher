@@ -284,12 +284,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Setup WebSocket server for real-time communication
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
   
+  // Set up heartbeat to keep connections alive
+  const heartbeatInterval = setInterval(() => {
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
+        try {
+          client.ping();
+        } catch (err) {
+          console.error('Error sending ping:', err);
+        }
+      }
+    });
+  }, 30000); // every 30 seconds
+  
+  // Clean up interval on server close
+  httpServer.on('close', () => {
+    clearInterval(heartbeatInterval);
+  });
+  
   wss.on('connection', (ws) => {
     let userId: number | null = null;
     let meetingId: number | null = null;
     let userInfo: { username: string, displayName: string } | null = null;
     
     console.log('New WebSocket connection established');
+    
+    // Set up pong handler to respond to pings
+    ws.on('pong', () => {
+      // Connection is alive, nothing to do
+    });
     
     ws.on('message', async (message) => {
       try {
