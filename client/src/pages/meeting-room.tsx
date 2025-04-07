@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation, useParams } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useWebRTC } from "@/hooks/use-webrtc";
 import { Button } from "@/components/ui/button";
 import { 
   Loader2, Mic, MicOff, Video, VideoOff, ScreenShare, X, Copy, 
@@ -11,7 +12,7 @@ import {
 } from "lucide-react";
 import { MicMonitor } from "@/components/media/mic-monitor";
 import { FaceDetector } from "@/components/media/face-detector";
-import { requestPermissions } from "@/lib/media-permissions";
+import { requestPermissions, requestScreenCapture } from "@/lib/media-permissions";
 
 export default function MeetingRoom() {
   const { user } = useAuth();
@@ -28,9 +29,20 @@ export default function MeetingRoom() {
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [isMiniView, setIsMiniView] = useState(false);
   const [showParticipantsList, setShowParticipantsList] = useState(false);
+  const [remoteStreams, setRemoteStreams] = useState<Map<number, MediaStream>>(new Map());
+  const [webrtcParticipants, setWebrtcParticipants] = useState<Array<{
+    userId: number, 
+    displayName: string, 
+    stream?: MediaStream,
+    mediaState?: {
+      audio: boolean,
+      video: boolean
+    }
+  }>>([]);
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const remoteVideoRefs = useRef<Map<number, HTMLVideoElement | null>>(new Map());
 
   // Check for media permissions on load
   useEffect(() => {
@@ -332,6 +344,109 @@ export default function MeetingRoom() {
       navigate("/meetings");
     }
   }, [meeting, isLoadingMeeting, navigate, toast]);
+  
+  // Handle remote participant streams with WebRTC
+  const handleParticipantJoined = useCallback((participant: any) => {
+    console.log(`Participant joined: ${participant.displayName} (${participant.userId})`);
+    setWebrtcParticipants(prev => [...prev, {
+      userId: participant.userId,
+      displayName: participant.displayName,
+      mediaState: {
+        audio: true,
+        video: true
+      }
+    }]);
+  }, []);
+  
+  const handleParticipantLeft = useCallback((userId: number) => {
+    console.log(`Participant left: ${userId}`);
+    setWebrtcParticipants(prev => prev.filter(p => p.userId !== userId));
+    setRemoteStreams(prev => {
+      const newStreams = new Map(prev);
+      newStreams.delete(userId);
+      return newStreams;
+    });
+  }, []);
+  
+  const handleParticipantStreamAdded = useCallback((userId: number, stream: MediaStream) => {
+    console.log(`Stream added for participant: ${userId}`);
+    setRemoteStreams(prev => {
+      const newStreams = new Map(prev);
+      newStreams.set(userId, stream);
+      return newStreams;
+    });
+    
+    setWebrtcParticipants(prev => 
+      prev.map(p => p.userId === userId ? { ...p, stream } : p)
+    );
+    
+    // Attach stream to video element
+    const videoElement = remoteVideoRefs.current.get(userId);
+    if (videoElement) {
+      videoElement.srcObject = stream;
+      videoElement.play().catch(error => {
+        console.error(`Error playing remote video for user ${userId}:`, error);
+      });
+    }
+  }, []);
+  
+  const handleMeetingEnded = useCallback(() => {
+    toast({
+      title: "Meeting Ended",
+      description: "The meeting has been ended by the host.",
+    });
+    navigate("/meetings");
+  }, [navigate, toast]);
+  
+  // Handle media state changes from remote participants
+  const handleMediaStateChanged = useCallback((userId: number, mediaType: 'audio' | 'video', enabled: boolean) => {
+    console.log(`Media state changed for participant ${userId}: ${mediaType} ${enabled ? 'enabled' : 'disabled'}`);
+    
+    setWebrtcParticipants(prev => 
+      prev.map(p => {
+        if (p.userId === userId) {
+          const mediaState = p.mediaState || { audio: true, video: true };
+          return {
+            ...p,
+            mediaState: {
+              ...mediaState,
+              [mediaType]: enabled
+            }
+          };
+        }
+        return p;
+      })
+    );
+  }, []);
+  
+  // Initialize WebRTC when meeting is loaded and local stream is ready
+  const { isConnected, participants: webrtcConnectedParticipants, sendMediaStateChange } = useWebRTC({
+    user: user ? {
+      id: user.id,
+      username: user.username,
+      displayName: user.displayName || user.username
+    } : null,
+    meetingId,
+    localStream: localStreamRef.current,
+    onParticipantJoined: handleParticipantJoined,
+    onParticipantLeft: handleParticipantLeft,
+    onParticipantStreamAdded: handleParticipantStreamAdded,
+    onMediaStateChanged: handleMediaStateChanged,
+    onMeetingEnded: handleMeetingEnded
+  });
+  
+  // Send media state changes to other participants
+  useEffect(() => {
+    if (isConnected) {
+      sendMediaStateChange('audio', micEnabled);
+    }
+  }, [micEnabled, isConnected, sendMediaStateChange]);
+  
+  useEffect(() => {
+    if (isConnected) {
+      sendMediaStateChange('video', cameraEnabled);
+    }
+  }, [cameraEnabled, isConnected, sendMediaStateChange]);
 
   if (isLoadingMeeting) {
     return (
@@ -652,7 +767,7 @@ export default function MeetingRoom() {
                 </div>
               </div>
               
-              {/* Other Participants (placeholders) */}
+              {/* Other Participants (with WebRTC support) */}
               {isLoadingParticipants ? (
                 <div className="bg-gray-800 rounded-lg overflow-hidden aspect-video flex items-center justify-center">
                   <Loader2 className="h-8 w-8 animate-spin text-white" />
@@ -660,26 +775,66 @@ export default function MeetingRoom() {
               ) : participants && participants.length > 0 ? (
                 participants
                   .filter((p: any) => p.user && p.user.id !== user?.id)
-                  .map((participant: any) => (
-                    <div key={participant.id} className="bg-gray-800 rounded-lg overflow-hidden aspect-video relative flex items-center justify-center">
-                      <div className="bg-gray-700 rounded-full h-24 w-24 flex items-center justify-center text-3xl text-white">
-                        {participant.user.displayName.charAt(0)}
-                      </div>
-                      <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 p-2">
-                        <div className="flex justify-between items-center">
-                          <span className="text-white text-sm">{participant.user.displayName}</span>
-                          <div className="flex space-x-1">
-                            <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
-                              <Video className="w-4 h-4 text-green-500" />
-                            </span>
-                            <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
-                              <Mic className="w-4 h-4 text-green-500" />
-                            </span>
+                  .map((participant: any) => {
+                    // Find matching WebRTC participant if available
+                    const webrtcParticipant = webrtcParticipants.find(wp => wp.userId === participant.user.id);
+                    const hasStream = webrtcParticipant?.stream != null;
+                    
+                    // Set up ref callback for this participant's video
+                    const videoRef = (element: HTMLVideoElement | null) => {
+                      if (element) {
+                        remoteVideoRefs.current.set(participant.user.id, element);
+                        // Attach stream if already available
+                        if (webrtcParticipant?.stream) {
+                          element.srcObject = webrtcParticipant.stream;
+                          element.play().catch(err => console.error("Error playing remote video:", err));
+                        }
+                      }
+                    };
+                    
+                    return (
+                      <div key={participant.id} className="bg-gray-800 rounded-lg overflow-hidden aspect-video relative">
+                        {hasStream ? (
+                          // Show remote video stream
+                          <video
+                            ref={videoRef}
+                            autoPlay
+                            playsInline
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          // Show avatar placeholder
+                          <div className="w-full h-full flex items-center justify-center">
+                            <div className="bg-gray-700 rounded-full h-24 w-24 flex items-center justify-center text-3xl text-white">
+                              {participant.user.displayName.charAt(0)}
+                            </div>
+                          </div>
+                        )}
+                        
+                        <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 p-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-white text-sm">{participant.user.displayName}</span>
+                            <div className="flex space-x-1">
+                              <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
+                                {webrtcParticipant?.mediaState?.video ? (
+                                  <Video className="w-4 h-4 text-green-500" />
+                                ) : (
+                                  <VideoOff className="w-4 h-4 text-red-500" />
+                                )}
+                              </span>
+                              <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
+                                {webrtcParticipant?.mediaState?.audio ? (
+                                  <Mic className="w-4 h-4 text-green-500" />
+                                ) : (
+                                  <MicOff className="w-4 h-4 text-red-500" />
+                                )}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    </div>
-                  ))
+                    );
+                  })
               ) : (
                 <div className="bg-gray-800 rounded-lg overflow-hidden aspect-video flex items-center justify-center text-white">
                   <p>No other participants yet</p>

@@ -1,10 +1,33 @@
 import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
+import { WebSocketServer, WebSocket } from 'ws';
 import { storage } from "./storage";
 import { setupAuth } from "./auth";
 import { z } from "zod";
 import { generateMeetingCode } from "../shared/utils";
 import { insertMeetingSchema, insertParticipantSchema, updateUserSettingsSchema } from "@shared/schema";
+
+// Store WebSocket connections by meetingId and userId
+interface WebSocketConnection {
+  userId: number;
+  socket: WebSocket;
+  username: string;
+  displayName: string;
+}
+
+interface WebSocketMessage {
+  type: string;
+  meetingId: number;
+  from: {
+    userId: number;
+    username: string;
+    displayName: string;
+  };
+  data: any;
+}
+
+// Map to store active connections by meeting
+const meetingConnections = new Map<number, Map<number, WebSocketConnection>>();
 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Setup authentication routes
@@ -257,5 +280,152 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const httpServer = createServer(app);
+  
+  // Setup WebSocket server for real-time communication
+  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  
+  wss.on('connection', (ws) => {
+    let userId: number | null = null;
+    let meetingId: number | null = null;
+    let userInfo: { username: string, displayName: string } | null = null;
+    
+    console.log('New WebSocket connection established');
+    
+    ws.on('message', async (message) => {
+      try {
+        const parsedMessage = JSON.parse(message.toString()) as WebSocketMessage;
+        console.log(`WebSocket message received: ${parsedMessage.type}`);
+        
+        // Handle different message types
+        switch (parsedMessage.type) {
+          case 'join-meeting':
+            // User is joining a meeting room
+            userId = parsedMessage.from.userId;
+            meetingId = parsedMessage.meetingId;
+            userInfo = {
+              username: parsedMessage.from.username,
+              displayName: parsedMessage.from.displayName
+            };
+            
+            console.log(`User ${userInfo.displayName} (${userId}) joined meeting ${meetingId}`);
+            
+            // Initialize connections map for this meeting if it doesn't exist
+            if (!meetingConnections.has(meetingId)) {
+              meetingConnections.set(meetingId, new Map<number, WebSocketConnection>());
+            }
+            
+            // Add this connection to the meeting
+            const connectionsMap = meetingConnections.get(meetingId)!;
+            connectionsMap.set(userId, {
+              userId,
+              socket: ws,
+              username: userInfo.username,
+              displayName: userInfo.displayName
+            });
+            
+            // Notify other participants that this user has joined
+            connectionsMap.forEach((conn, connUserId) => {
+              if (connUserId !== userId && conn.socket.readyState === WebSocket.OPEN) {
+                conn.socket.send(JSON.stringify({
+                  type: 'user-joined',
+                  meetingId,
+                  from: parsedMessage.from
+                }));
+              }
+            });
+            
+            // Send list of all current participants to the newly joined user
+            const participants: any[] = [];
+            connectionsMap.forEach((conn, connUserId) => {
+              if (connUserId !== userId) {
+                participants.push({
+                  userId: connUserId,
+                  username: conn.username,
+                  displayName: conn.displayName
+                });
+              }
+            });
+            
+            ws.send(JSON.stringify({
+              type: 'participants-list',
+              meetingId,
+              data: { participants }
+            }));
+            break;
+            
+          case 'offer':
+          case 'answer':
+          case 'ice-candidate':
+            // Forward WebRTC signaling messages to the intended recipient
+            if (meetingId && userId) {
+              const connectionsMap = meetingConnections.get(meetingId);
+              
+              if (connectionsMap) {
+                const targetUserId = parsedMessage.data.targetUserId;
+                const targetConn = connectionsMap.get(targetUserId);
+                
+                if (targetConn && targetConn.socket.readyState === WebSocket.OPEN) {
+                  console.log(`Forwarding ${parsedMessage.type} from ${userId} to ${targetUserId}`);
+                  targetConn.socket.send(JSON.stringify(parsedMessage));
+                }
+              }
+            }
+            break;
+            
+          case 'media-state-change':
+            // Broadcast media state changes (mute/unmute, video on/off)
+            if (meetingId && userId) {
+              const connectionsMap = meetingConnections.get(meetingId);
+              
+              if (connectionsMap) {
+                connectionsMap.forEach((conn, connUserId) => {
+                  if (connUserId !== userId && conn.socket.readyState === WebSocket.OPEN) {
+                    conn.socket.send(JSON.stringify(parsedMessage));
+                  }
+                });
+              }
+            }
+            break;
+        }
+      } catch (error) {
+        console.error('Error handling WebSocket message:', error);
+      }
+    });
+    
+    ws.on('close', () => {
+      // Remove this connection when the socket is closed
+      if (meetingId && userId && userInfo) {
+        console.log(`User ${userInfo.displayName} (${userId}) disconnected from meeting ${meetingId}`);
+        
+        const connectionsMap = meetingConnections.get(meetingId);
+        
+        if (connectionsMap) {
+          // Remove this user's connection
+          connectionsMap.delete(userId);
+          
+          // Notify other participants that this user has left
+          connectionsMap.forEach((conn) => {
+            if (conn.socket.readyState === WebSocket.OPEN) {
+              conn.socket.send(JSON.stringify({
+                type: 'user-left',
+                meetingId,
+                from: {
+                  userId,
+                  username: userInfo.username,
+                  displayName: userInfo.displayName
+                }
+              }));
+            }
+          });
+          
+          // If no more connections for this meeting, remove the meeting entry
+          if (connectionsMap.size === 0) {
+            meetingConnections.delete(meetingId);
+          }
+        }
+      }
+    });
+  });
+  
   return httpServer;
 }
