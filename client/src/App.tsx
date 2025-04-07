@@ -6,6 +6,7 @@ import DashboardPage from "@/pages/dashboard-page";
 import SettingsPage from "@/pages/settings-page";
 import MeetingsPage from "@/pages/meetings-page";
 import MeetingRoom from "@/pages/meeting-room";
+import HistoryPage from "@/pages/history-page";
 import { ProtectedRoute } from "./lib/protected-route";
 import { useEffect, useState } from "react";
 import { AuthProvider } from "./hooks/use-auth";
@@ -18,6 +19,7 @@ function Router() {
       <ProtectedRoute path="/settings" component={SettingsPage} />
       <ProtectedRoute path="/meetings" component={MeetingsPage} />
       <ProtectedRoute path="/meeting/:id" component={MeetingRoom} />
+      <ProtectedRoute path="/history" component={HistoryPage} />
       <Route component={NotFound} />
     </Switch>
   );
