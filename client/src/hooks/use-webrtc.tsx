@@ -50,6 +50,7 @@ export function useWebRTC({
   const [participants, setParticipants] = useState<Map<number, Participant>>(new Map());
   const socketRef = useRef<WebSocket | null>(null);
   const peerConnectionsRef = useRef<Map<number, RTCPeerConnection>>(new Map());
+  const participantStreamsRef = useRef<Map<number, MediaStream>>(new Map());
   // Store pending ICE candidates when remote description isn't set yet
   const pendingIceCandidates = new Map<number, RTCIceCandidateInit[]>();
   const { toast } = useToast();
@@ -748,19 +749,30 @@ export function useWebRTC({
         peerConnection.ontrack = (event) => {
           console.log(`Received track from participant ${fromUserId}:`, event.track.kind, event.track.enabled);
           
-          // Create a new MediaStream from the received tracks
-          // First check if we already have a stream for this participant
-          const existingParticipant = participants.get(fromUserId);
-          const remoteStream = existingParticipant?.stream || new MediaStream();
+          // CRITICAL FIX: Ensure track is enabled explicitly for audio/video to work
+          event.track.enabled = true;
           
-          // Add the new track to the stream if not already present
-          if (!remoteStream.getTracks().some(t => t.id === event.track.id)) {
-            console.log(`Adding ${event.track.kind} track to remote stream for participant ${fromUserId}`);
-            try {
-              remoteStream.addTrack(event.track);
-            } catch (err) {
-              console.error(`Error adding track to remote stream:`, err);
-            }
+          // Create a new MediaStream if we don't have one for this participant 
+          if (!participantStreamsRef.current.has(fromUserId)) {
+            console.log(`Creating new MediaStream for participant ${fromUserId}`);
+            participantStreamsRef.current.set(fromUserId, new MediaStream());
+          }
+          
+          const remoteStream = participantStreamsRef.current.get(fromUserId)!;
+          
+          // Check if we already have a track of this kind and remove it
+          const existingTrackOfSameKind = remoteStream.getTracks().find(t => t.kind === event.track.kind);
+          if (existingTrackOfSameKind) {
+            console.log(`Removing existing ${event.track.kind} track for participant ${fromUserId}`);
+            remoteStream.removeTrack(existingTrackOfSameKind);
+          }
+          
+          // Add the new track
+          console.log(`Adding ${event.track.kind} track to remote stream for participant ${fromUserId}`);
+          try {
+            remoteStream.addTrack(event.track);
+          } catch (err) {
+            console.error(`Error adding track to remote stream:`, err);
           }
           
           // For audio tracks, make sure they're enabled for playback

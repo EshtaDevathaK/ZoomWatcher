@@ -282,7 +282,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   
   // Setup WebSocket server for real-time communication
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+  const wss = new WebSocketServer({ 
+    server: httpServer, 
+    path: '/ws'
+  });
+  
+  console.log('WebSocket server initialized at path: /ws');
   
   // Set up heartbeat to keep connections alive
   const heartbeatInterval = setInterval(() => {
