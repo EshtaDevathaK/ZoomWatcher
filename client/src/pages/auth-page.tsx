@@ -69,8 +69,8 @@ export default function AuthPage() {
         password: data.password,
       });
       if (result) {
-        // Manually trigger navigation after successful login
-        navigate("/");
+        // Force a hard navigation to ensure state is reset properly
+        window.location.href = "/";
       }
     } catch (error) {
       // Error is handled in the mutation
@@ -82,8 +82,8 @@ export default function AuthPage() {
     try {
       const result = await registerMutation.mutateAsync(data);
       if (result) {
-        // Manually trigger navigation after successful registration
-        navigate("/");
+        // Force a hard navigation to ensure state is reset properly
+        window.location.href = "/";
       }
     } catch (error) {
       // Error is handled in the mutation

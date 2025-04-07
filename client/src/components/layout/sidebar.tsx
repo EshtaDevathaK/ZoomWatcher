@@ -15,9 +15,15 @@ export function Sidebar() {
     setSidebarOpen(!sidebarOpen);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     if (confirm("Are you sure you want to log out?")) {
-      logoutMutation.mutate();
+      try {
+        await logoutMutation.mutateAsync();
+        // Force reload the page to ensure all state is reset
+        window.location.href = "/auth";
+      } catch (error) {
+        console.error("Logout failed:", error);
+      }
     }
   };
 
