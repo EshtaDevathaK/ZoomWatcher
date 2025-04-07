@@ -50,33 +50,89 @@ export default function MeetingRoom() {
         setPermissionsGranted(result);
         
         if (result) {
-          // Initialize camera and microphone
-          // Request camera and microphone access with specific constraints
-          const stream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
-              autoGainControl: true
+          // Initialize camera and microphone with explicit constraints 
+          console.log("Getting user media with explicit constraints");
+          let mediaStream: MediaStream;
+          
+          try {
+            // First try with ideal quality settings
+            const highQualityStream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                facingMode: "user" // Use front camera specifically
+              },
+              audio: {
+                echoCancellation: true,
+                noiseSuppression: true,
+                autoGainControl: true
+              }
+            });
+            
+            console.log("Successfully got user media with high quality settings");
+            
+            // Check if video tracks were obtained
+            const videoTracks = highQualityStream.getVideoTracks();
+            if (videoTracks.length === 0) {
+              console.error("No video tracks obtained even though permission was granted");
+              throw new Error("No video tracks obtained");
             }
-          });
+            
+            console.log(`Video tracks obtained: ${videoTracks.length}`);
+            console.log(`Video track 0 settings:`, videoTracks[0].getSettings());
+            
+            // Make sure audio tracks are properly enabled
+            const audioTracks = highQualityStream.getAudioTracks();
+            console.log(`Initial audio tracks: ${audioTracks.length}`);
+            audioTracks.forEach((track, index) => {
+              track.enabled = true;
+              console.log(`Setup audio track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
+            });
+            
+            mediaStream = highQualityStream;
+          } catch (highQualityError) {
+            console.warn("Could not get high-quality stream, trying with basic settings", highQualityError);
+            
+            // If high quality fails, try with minimal constraints
+            try {
+              const basicStream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: true
+              });
+              
+              console.log("Successfully got user media with basic settings");
+              
+              // Check and log the video tracks
+              const videoTracks = basicStream.getVideoTracks();
+              console.log(`Basic video tracks obtained: ${videoTracks.length}`);
+              if (videoTracks.length > 0) {
+                console.log(`Basic video track 0 settings:`, videoTracks[0].getSettings());
+              }
+              
+              // Make sure audio tracks are properly enabled
+              const audioTracks = basicStream.getAudioTracks();
+              console.log(`Basic audio tracks: ${audioTracks.length}`);
+              audioTracks.forEach((track, index) => {
+                track.enabled = true;
+                console.log(`Setup basic audio track ${index}: enabled=${track.enabled}, readyState=${track.readyState}`);
+              });
+              
+              mediaStream = basicStream;
+            } catch (basicError) {
+              console.error("Failed to get even basic media stream", basicError);
+              throw basicError;
+            }
+          }
           
-          // Make sure audio is not accidentally muted
-          const audioTracks = stream.getAudioTracks();
-          console.log(`Initial audio tracks: ${audioTracks.length}`);
-          audioTracks.forEach((track, index) => {
-            track.enabled = true;
-            console.log(`Setup audio track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
-          });
+          console.log("Media stream obtained:", mediaStream);
+          console.log("Video tracks:", mediaStream.getVideoTracks().length);
+          console.log("Audio tracks:", mediaStream.getAudioTracks().length);
           
-          console.log("Media stream obtained:", stream);
-          console.log("Video tracks:", stream.getVideoTracks().length);
-          console.log("Audio tracks:", stream.getAudioTracks().length);
-          
-          localStreamRef.current = stream;
+          localStreamRef.current = mediaStream;
           
           if (localVideoRef.current) {
-            localVideoRef.current.srcObject = stream;
+            console.log("Setting video element source to media stream");
+            localVideoRef.current.srcObject = mediaStream;
             
             // Force visibility and ensure stream is attached
             localVideoRef.current.style.display = "block";
@@ -99,15 +155,19 @@ export default function MeetingRoom() {
                 });
               }
             }
+          } else {
+            console.error("No local video element found!");
           }
           
           // Ensure video tracks are enabled based on state
-          stream.getVideoTracks().forEach(track => {
+          mediaStream.getVideoTracks().forEach((track: MediaStreamTrack) => {
+            console.log(`Setting video track enabled to ${cameraEnabled}`);
             track.enabled = cameraEnabled;
           });
           
           // Ensure audio tracks are enabled based on state
-          stream.getAudioTracks().forEach(track => {
+          mediaStream.getAudioTracks().forEach((track: MediaStreamTrack) => {
+            console.log(`Setting audio track enabled to ${micEnabled}`);
             track.enabled = micEnabled;
           });
         }
