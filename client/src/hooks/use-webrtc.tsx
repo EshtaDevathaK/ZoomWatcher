@@ -500,29 +500,91 @@ export function useWebRTC({
           }
         };
         
-        // Handle remote tracks
+        // Handle remote tracks with improved audio handling
         peerConnection.ontrack = (event) => {
           console.log(`Received track from participant ${targetUserId}:`, event.track.kind, event.track.enabled);
           
-          // Create a new MediaStream from the received tracks
-          // First check if we already have a stream for this participant
+          // Store the streams from the event for reference
+          const streams = event.streams;
+          
+          // This is a critical fix: We need to keep track of participant streams in a local ref
+          // to prevent garbage collection issues that can cause audio to stop working
+          if (!participantStreamsRef.current) {
+            participantStreamsRef.current = new Map();
+          }
+          
+          // Create a new MediaStream if needed
           const existingParticipant = participants.get(targetUserId);
-          const remoteStream = existingParticipant?.stream || new MediaStream();
+          let remoteStream: MediaStream;
+          
+          // Check if we have existing stream in our ref
+          const existingStream = participantStreamsRef.current.get(targetUserId);
+          if (existingStream) {
+            remoteStream = existingStream;
+            console.log(`Using existing stream for participant ${targetUserId}`);
+          } else if (existingParticipant?.stream) {
+            remoteStream = existingParticipant.stream;
+            console.log(`Using stream from participant state for ${targetUserId}`);
+          } else if (streams && streams.length > 0) {
+            // Use the stream provided by the event if available (best practice)
+            remoteStream = streams[0];
+            console.log(`Using stream provided by track event for participant ${targetUserId}`);
+          } else {
+            // Create a new stream as a last resort
+            remoteStream = new MediaStream();
+            console.log(`Created new stream for participant ${targetUserId}`);
+          }
           
           // Add the new track to the stream if it's not already there
           if (!remoteStream.getTracks().some(t => t.id === event.track.id)) {
-            console.log(`Adding ${event.track.kind} track to remote stream for participant ${targetUserId}`);
             try {
+              console.log(`Adding ${event.track.kind} track (${event.track.id}) to remote stream for participant ${targetUserId}`);
               remoteStream.addTrack(event.track);
+              
+              // Force track to be enabled by default, especially for audio
+              event.track.enabled = true;
+              
+              // Directly add listeners to the track for better error handling
+              event.track.onended = () => {
+                console.log(`Track ${event.track.id} (${event.track.kind}) from participant ${targetUserId} ended`);
+              };
+              
+              event.track.onmute = () => {
+                console.log(`Track ${event.track.id} (${event.track.kind}) from participant ${targetUserId} muted`);
+              };
+              
+              event.track.onunmute = () => {
+                console.log(`Track ${event.track.id} (${event.track.kind}) from participant ${targetUserId} unmuted`);
+              };
             } catch (err) {
               console.error(`Error adding track to remote stream:`, err);
             }
           }
           
-          // For audio tracks, make sure they're enabled for playback
+          // CRITICAL: Store the stream in our ref to prevent garbage collection
+          participantStreamsRef.current.set(targetUserId, remoteStream);
+          
+          // Special handling for audio tracks - ensure they're always enabled by default
           if (event.track.kind === 'audio') {
             console.log(`Setting remote audio track to enabled for participant ${targetUserId}`);
             event.track.enabled = true;
+            
+            // Create an audio context to ensure audio is activated
+            try {
+              const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+              const audioCtx = new AudioContext();
+              
+              // Try to create an audio source from the track
+              const source = audioCtx.createMediaStreamSource(new MediaStream([event.track]));
+              const gain = audioCtx.createGain();
+              gain.gain.value = 1.0; // Full volume
+              source.connect(gain);
+              gain.connect(audioCtx.destination);
+              
+              console.log(`Created audio context for participant ${targetUserId}'s audio track`);
+            } catch (err) {
+              console.warn(`Failed to create audio context for participant ${targetUserId}:`, err);
+            }
           }
           
           // Log track details for debugging
@@ -530,7 +592,9 @@ export function useWebRTC({
             id: event.track.id,
             enabled: event.track.enabled,
             muted: event.track.muted,
-            readyState: event.track.readyState
+            readyState: event.track.readyState,
+            constraints: event.track.getConstraints(),
+            settings: event.track.getSettings()
           });
           
           // Update participant stream in our state
@@ -539,17 +603,20 @@ export function useWebRTC({
             const participant = newMap.get(targetUserId);
             
             if (participant) {
-              console.log(`Updating participant ${targetUserId} with new stream`);
+              console.log(`Updating participant ${targetUserId} with new stream containing ${remoteStream.getTracks().length} tracks`);
               
-              // Get participant's media state or set defaults
+              // Get participant's media state or set defaults - but ALWAYS enable audio by default
               const mediaState = participant.mediaState || { audio: true, video: true };
               
-              // Make sure the track's enabled state matches the participant's media state
-              if (event.track.kind === 'audio') {
-                event.track.enabled = mediaState.audio;
-              } else if (event.track.kind === 'video') {
-                event.track.enabled = mediaState.video;
-              }
+              // Apply media state to all tracks in the stream
+              remoteStream.getTracks().forEach(track => {
+                if (track.kind === 'audio') {
+                  // CRITICAL FIX: Always enable audio tracks
+                  track.enabled = true;
+                } else if (track.kind === 'video') {
+                  track.enabled = mediaState.video;
+                }
+              });
               
               const updatedParticipant = {
                 ...participant,
@@ -561,9 +628,9 @@ export function useWebRTC({
               
               // Notify via callback that we've got a stream
               if (onParticipantStreamAdded) {
-                setTimeout(() => {
-                  onParticipantStreamAdded(targetUserId, remoteStream);
-                }, 100); // Small delay to ensure stream is properly set up
+                // Immediate notification for audio and delayed for video
+                // This ensures audio starts working immediately
+                onParticipantStreamAdded(targetUserId, remoteStream);
               }
             } else {
               console.warn(`Received track for unknown participant ${targetUserId}`);
@@ -745,20 +812,37 @@ export function useWebRTC({
           }
         };
         
-        // Handle remote tracks
+        // Handle remote tracks with improved handling (similar to main ontrack handler)
         peerConnection.ontrack = (event) => {
           console.log(`Received track from participant ${fromUserId}:`, event.track.kind, event.track.enabled);
+          
+          // Store the streams from the event for reference
+          const streams = event.streams;
           
           // CRITICAL FIX: Ensure track is enabled explicitly for audio/video to work
           event.track.enabled = true;
           
           // Create a new MediaStream if we don't have one for this participant 
-          if (!participantStreamsRef.current.has(fromUserId)) {
-            console.log(`Creating new MediaStream for participant ${fromUserId}`);
-            participantStreamsRef.current.set(fromUserId, new MediaStream());
+          if (!participantStreamsRef.current) {
+            participantStreamsRef.current = new Map();
           }
           
-          const remoteStream = participantStreamsRef.current.get(fromUserId)!;
+          // Determine which stream to use
+          let remoteStream: MediaStream;
+          
+          // Check if we have existing stream in our ref
+          if (participantStreamsRef.current.has(fromUserId)) {
+            console.log(`Using existing stream for participant ${fromUserId}`);
+            remoteStream = participantStreamsRef.current.get(fromUserId)!;
+          } else if (streams && streams.length > 0) {
+            // Use the stream provided by the event if available (best practice)
+            remoteStream = streams[0];
+            console.log(`Using stream provided by track event for participant ${fromUserId}`);
+          } else {
+            // Create a new stream as a last resort
+            remoteStream = new MediaStream();
+            console.log(`Created new stream for participant ${fromUserId}`);
+          }
           
           // Check if we already have a track of this kind and remove it
           const existingTrackOfSameKind = remoteStream.getTracks().find(t => t.kind === event.track.kind);
@@ -768,9 +852,22 @@ export function useWebRTC({
           }
           
           // Add the new track
-          console.log(`Adding ${event.track.kind} track to remote stream for participant ${fromUserId}`);
+          console.log(`Adding ${event.track.kind} track (${event.track.id}) to remote stream for participant ${fromUserId}`);
           try {
             remoteStream.addTrack(event.track);
+            
+            // Add track event listeners for better state management
+            event.track.onended = () => {
+              console.log(`Track ${event.track.id} (${event.track.kind}) from participant ${fromUserId} ended`);
+            };
+            
+            event.track.onmute = () => {
+              console.log(`Track ${event.track.id} (${event.track.kind}) from participant ${fromUserId} muted`);
+            };
+            
+            event.track.onunmute = () => {
+              console.log(`Track ${event.track.id} (${event.track.kind}) from participant ${fromUserId} unmuted`);
+            };
           } catch (err) {
             console.error(`Error adding track to remote stream:`, err);
           }

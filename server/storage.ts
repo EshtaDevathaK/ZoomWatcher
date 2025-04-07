@@ -33,7 +33,7 @@ export interface IStorage {
   updateUserSettings(userId: number, settingsData: Partial<InsertUserSettings>): Promise<UserSettings | undefined>;
   
   // Session store for authentication
-  sessionStore: session.SessionStore;
+  sessionStore: any; // Using 'any' type to avoid TypeScript error with session.SessionStore
 }
 
 export class MemStorage implements IStorage {
@@ -41,7 +41,7 @@ export class MemStorage implements IStorage {
   private meetings: Map<number, Meeting>;
   private participants: Map<number, Participant>;
   private userSettings: Map<number, UserSettings>;
-  sessionStore: session.SessionStore;
+  sessionStore: any; // Using any type to avoid TypeScript errors
   
   currentUserId: number;
   currentMeetingId: number;
@@ -61,6 +61,7 @@ export class MemStorage implements IStorage {
     
     this.sessionStore = new MemoryStore({
       checkPeriod: 86400000, // prune expired entries every 24h
+      stale: false // Don't delete stale sessions (keeps user sessions alive longer)
     });
   }
 
@@ -202,7 +203,19 @@ export class MemStorage implements IStorage {
   async createUserSettings(settings: InsertUserSettings): Promise<UserSettings> {
     const id = this.currentSettingsId++;
     const now = new Date();
-    const newSettings: UserSettings = { ...settings, id, updatedAt: now };
+    // Make sure all boolean fields are explicitly defined to avoid TypeScript errors
+    const newSettings: UserSettings = { 
+      id, 
+      userId: settings.userId,
+      autoMuteEnabled: settings.autoMuteEnabled ?? true,
+      autoVideoOffEnabled: settings.autoVideoOffEnabled ?? true,
+      alwaysOnModeEnabled: settings.alwaysOnModeEnabled ?? false,
+      autoMuteAlertsEnabled: settings.autoMuteAlertsEnabled ?? true,
+      autoVideoAlertsEnabled: settings.autoVideoAlertsEnabled ?? true,
+      vibrationFeedbackEnabled: settings.vibrationFeedbackEnabled ?? true,
+      allNotificationsDisabled: settings.allNotificationsDisabled ?? false,
+      updatedAt: now 
+    };
     this.userSettings.set(id, newSettings);
     return newSettings;
   }
