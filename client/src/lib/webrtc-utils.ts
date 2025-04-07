@@ -13,6 +13,27 @@ const iceServers: RTCConfiguration = {
     { urls: 'stun:stun.ekiga.net' },
     { urls: 'stun:stun.ideasip.com' },
     { urls: 'stun:stun.schlund.de' },
+    // Adding fallback STUN servers to increase connection reliability
+    { urls: 'stun:stun.stunprotocol.org:3478' },
+    { urls: 'stun:stun.voiparound.com' },
+    { urls: 'stun:stun.voipbuster.com' },
+    { urls: 'stun:stun.webrtc.org:3478' },
+    // Add a free TURN server to handle more difficult NAT scenarios
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
   ],
   iceCandidatePoolSize: 10,
   bundlePolicy: 'max-bundle' as RTCBundlePolicy,
