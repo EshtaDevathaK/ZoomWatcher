@@ -1,0 +1,533 @@
+import { useState, useEffect, useRef } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation, useParams } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
+import { Loader2, Mic, MicOff, Video, VideoOff, ScreenShare, X, Copy, UserPlus, LogOut } from "lucide-react";
+import { MicMonitor } from "@/components/media/mic-monitor";
+import { FaceDetector } from "@/components/media/face-detector";
+import { requestPermissions } from "@/lib/media-permissions";
+
+export default function MeetingRoom() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+  const params = useParams<{ id: string }>();
+  const meetingId = parseInt(params.id);
+  
+  const [micEnabled, setMicEnabled] = useState(true);
+  const [cameraEnabled, setCameraEnabled] = useState(true);
+  const [screenShareEnabled, setScreenShareEnabled] = useState(false);
+  const [permissionsGranted, setPermissionsGranted] = useState(false);
+  const [checkingPermissions, setCheckingPermissions] = useState(true);
+  
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+
+  // Check for media permissions on load
+  useEffect(() => {
+    const checkPermissions = async () => {
+      try {
+        setCheckingPermissions(true);
+        const result = await requestPermissions();
+        setPermissionsGranted(result);
+        
+        if (result) {
+          // Initialize camera and microphone
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: true
+          });
+          
+          localStreamRef.current = stream;
+          
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = stream;
+          }
+        }
+      } catch (error) {
+        console.error("Error checking permissions:", error);
+        setPermissionsGranted(false);
+        toast({
+          title: "Permission Error",
+          description: "Failed to access camera and microphone. Please check your browser settings.",
+          variant: "destructive",
+        });
+      } finally {
+        setCheckingPermissions(false);
+      }
+    };
+
+    checkPermissions();
+    
+    // Cleanup function
+    return () => {
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [toast]);
+
+  // Fetch meeting data
+  const { data: meeting, isLoading: isLoadingMeeting } = useQuery({
+    queryKey: [`/api/meetings/${meetingId}`],
+    enabled: !isNaN(meetingId),
+    refetchInterval: 10000, // Poll every 10 seconds to check if meeting is still active
+  });
+
+  // Fetch participants
+  const { data: participants, isLoading: isLoadingParticipants } = useQuery({
+    queryKey: [`/api/meetings/${meetingId}/participants`],
+    enabled: !isNaN(meetingId) && !!meeting,
+    refetchInterval: 5000, // Poll every 5 seconds to update participants
+  });
+
+  // Fetch user settings
+  const { data: settings } = useQuery({
+    queryKey: ["/api/settings"],
+    enabled: !!user && permissionsGranted,
+  });
+
+  // Leave meeting mutation
+  const leaveMeetingMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/meetings/${meetingId}/leave`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      navigate("/meetings");
+      toast({
+        title: "Meeting left",
+        description: "You have left the meeting.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to leave meeting",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // End meeting mutation (for host)
+  const endMeetingMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/meetings/${meetingId}/end`, {});
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/meetings/${meetingId}`] });
+      navigate("/meetings");
+      toast({
+        title: "Meeting ended",
+        description: "The meeting has been ended successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Failed to end meeting",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Toggle microphone
+  const toggleMicrophone = () => {
+    if (localStreamRef.current) {
+      const audioTracks = localStreamRef.current.getAudioTracks();
+      audioTracks.forEach(track => {
+        track.enabled = !micEnabled;
+      });
+      setMicEnabled(!micEnabled);
+    }
+  };
+
+  // Toggle camera
+  const toggleCamera = () => {
+    if (localStreamRef.current) {
+      const videoTracks = localStreamRef.current.getVideoTracks();
+      videoTracks.forEach(track => {
+        track.enabled = !cameraEnabled;
+      });
+      setCameraEnabled(!cameraEnabled);
+    }
+  };
+
+  // Toggle screen share
+  const toggleScreenShare = async () => {
+    try {
+      if (screenShareEnabled) {
+        // Stop screen sharing
+        if (localStreamRef.current) {
+          const videoTracks = localStreamRef.current.getVideoTracks();
+          videoTracks.forEach(track => track.stop());
+          
+          // Get user video again
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          const videoTrack = stream.getVideoTracks()[0];
+          
+          if (localStreamRef.current) {
+            const audioTracks = localStreamRef.current.getAudioTracks();
+            localStreamRef.current.removeTrack(localStreamRef.current.getVideoTracks()[0]);
+            localStreamRef.current.addTrack(videoTrack);
+            
+            if (localVideoRef.current) {
+              localVideoRef.current.srcObject = localStreamRef.current;
+            }
+          }
+        }
+      } else {
+        // Start screen sharing
+        const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+        const screenTrack = displayStream.getVideoTracks()[0];
+        
+        if (localStreamRef.current) {
+          const audioTracks = localStreamRef.current.getAudioTracks();
+          localStreamRef.current.removeTrack(localStreamRef.current.getVideoTracks()[0]);
+          localStreamRef.current.addTrack(screenTrack);
+          
+          if (localVideoRef.current) {
+            localVideoRef.current.srcObject = localStreamRef.current;
+          }
+          
+          // Listen for the end of screen sharing
+          screenTrack.onended = async () => {
+            setScreenShareEnabled(false);
+            
+            // Get user video again
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            const videoTrack = stream.getVideoTracks()[0];
+            
+            if (localStreamRef.current) {
+              localStreamRef.current.removeTrack(screenTrack);
+              localStreamRef.current.addTrack(videoTrack);
+              
+              if (localVideoRef.current) {
+                localVideoRef.current.srcObject = localStreamRef.current;
+              }
+            }
+          };
+        }
+      }
+      
+      setScreenShareEnabled(!screenShareEnabled);
+    } catch (error) {
+      console.error("Error sharing screen:", error);
+      toast({
+        title: "Screen Sharing Error",
+        description: "Failed to share your screen. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Copy meeting info to clipboard
+  const copyMeetingInfo = () => {
+    if (meeting) {
+      const info = `Meeting: ${meeting.name}\nMeeting Code: ${meeting.meetingCode}\nLink: ${window.location.origin}/join/${meeting.meetingCode}`;
+      navigator.clipboard.writeText(info);
+      toast({
+        title: "Meeting info copied",
+        description: "Meeting information has been copied to clipboard.",
+      });
+    }
+  };
+
+  // Invite participants
+  const inviteParticipants = () => {
+    if (meeting) {
+      const subject = encodeURIComponent(`Join my ZoomWatcher meeting: ${meeting.name}`);
+      const body = encodeURIComponent(`Join my ZoomWatcher meeting.\n\nMeeting name: ${meeting.name}\nMeeting code: ${meeting.meetingCode}\nLink: ${window.location.origin}/join/${meeting.meetingCode}`);
+      window.open(`mailto:?subject=${subject}&body=${body}`);
+    }
+  };
+
+  // Leave meeting
+  const leaveMeeting = () => {
+    if (confirm("Are you sure you want to leave this meeting?")) {
+      leaveMeetingMutation.mutate();
+    }
+  };
+
+  // End meeting (for host)
+  const endMeeting = () => {
+    if (confirm("Are you sure you want to end this meeting for all participants?")) {
+      endMeetingMutation.mutate();
+    }
+  };
+
+  // If we can't find the meeting or it's not active, show an error
+  useEffect(() => {
+    if (!isLoadingMeeting && meeting && !meeting.isActive) {
+      toast({
+        title: "Meeting Ended",
+        description: "This meeting has ended.",
+        variant: "destructive",
+      });
+      navigate("/meetings");
+    }
+  }, [meeting, isLoadingMeeting, navigate, toast]);
+
+  if (isLoadingMeeting) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-900">
+        <div className="text-center text-white">
+          <Loader2 className="h-10 w-10 animate-spin mx-auto mb-4" />
+          <h2 className="text-xl font-semibold">Loading meeting...</h2>
+        </div>
+      </div>
+    );
+  }
+
+  if (!meeting) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-900">
+        <div className="text-center text-white">
+          <h2 className="text-xl font-semibold">Meeting not found</h2>
+          <p className="mt-2">The meeting you're looking for does not exist.</p>
+          <Button
+            className="mt-4"
+            onClick={() => navigate("/meetings")}
+          >
+            Back to Meetings
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  // Permission request component
+  if (checkingPermissions) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-900">
+        <div className="text-center text-white">
+          <Loader2 className="h-10 w-10 animate-spin mx-auto mb-4" />
+          <h2 className="text-xl font-semibold">Checking permissions...</h2>
+        </div>
+      </div>
+    );
+  }
+
+  if (!permissionsGranted) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-900">
+        <div className="bg-white rounded-lg max-w-md mx-4 p-6">
+          <div className="text-center mb-4">
+            <h3 className="mt-2 text-xl font-medium text-gray-900">Permission Required</h3>
+          </div>
+          <p className="text-gray-600 mb-6">
+            ZoomWatcher needs access to your camera and microphone to join the meeting. 
+            Please allow these permissions to continue.
+          </p>
+          <div className="flex justify-between">
+            <Button
+              variant="outline"
+              onClick={() => navigate("/meetings")}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                const result = await requestPermissions();
+                setPermissionsGranted(result);
+              }}
+            >
+              Allow Permissions
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-gray-900 min-h-screen">
+      <div className="flex flex-col h-screen">
+        {/* Meeting Header */}
+        <div className="bg-gray-800 p-4">
+          <div className="container mx-auto flex justify-between items-center">
+            <div className="flex items-center">
+              <h1 className="text-white text-xl font-bold">Meeting: {meeting.name}</h1>
+              <span className="ml-4 px-2 py-1 bg-green-500 text-white rounded-full text-xs">Live</span>
+            </div>
+            <div className="flex items-center space-x-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white hover:text-gray-300"
+                onClick={copyMeetingInfo}
+              >
+                <Copy className="w-5 h-5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white hover:text-gray-300"
+                onClick={inviteParticipants}
+              >
+                <UserPlus className="w-5 h-5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-white hover:text-red-500"
+                onClick={leaveMeeting}
+                disabled={leaveMeetingMutation.isPending}
+              >
+                <LogOut className="w-5 h-5" />
+              </Button>
+            </div>
+          </div>
+        </div>
+        
+        {/* Video Grid */}
+        <div className="flex-1 p-4 bg-gray-900 overflow-y-auto">
+          <div className="container mx-auto">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {/* Local Video */}
+              <div className="bg-gray-800 rounded-lg overflow-hidden aspect-video relative">
+                <video
+                  ref={localVideoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className="w-full h-full object-cover"
+                />
+                <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 p-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-white text-sm">{user?.displayName || "You"}</span>
+                    <div className="flex space-x-1">
+                      <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
+                        {cameraEnabled ? (
+                          <Video className="w-4 h-4 text-green-500" />
+                        ) : (
+                          <VideoOff className="w-4 h-4 text-red-500" />
+                        )}
+                      </span>
+                      <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
+                        {micEnabled ? (
+                          <Mic className="w-4 h-4 text-green-500" />
+                        ) : (
+                          <MicOff className="w-4 h-4 text-red-500" />
+                        )}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Other Participants (placeholders) */}
+              {isLoadingParticipants ? (
+                <div className="bg-gray-800 rounded-lg overflow-hidden aspect-video flex items-center justify-center">
+                  <Loader2 className="h-8 w-8 animate-spin text-white" />
+                </div>
+              ) : participants && participants.length > 0 ? (
+                participants
+                  .filter((p: any) => p.user && p.user.id !== user?.id)
+                  .map((participant: any) => (
+                    <div key={participant.id} className="bg-gray-800 rounded-lg overflow-hidden aspect-video relative flex items-center justify-center">
+                      <div className="bg-gray-700 rounded-full h-24 w-24 flex items-center justify-center text-3xl text-white">
+                        {participant.user.displayName.charAt(0)}
+                      </div>
+                      <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 p-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-white text-sm">{participant.user.displayName}</span>
+                          <div className="flex space-x-1">
+                            <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
+                              <Video className="w-4 h-4 text-green-500" />
+                            </span>
+                            <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
+                              <Mic className="w-4 h-4 text-green-500" />
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+              ) : (
+                <div className="bg-gray-800 rounded-lg overflow-hidden aspect-video flex items-center justify-center text-white">
+                  <p>No other participants yet</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        
+        {/* Meeting Controls */}
+        <div className="bg-gray-800 p-4">
+          <div className="container mx-auto flex justify-center">
+            <div className="flex space-x-4">
+              <Button
+                variant={micEnabled ? "default" : "destructive"}
+                size="icon"
+                className="rounded-full w-12 h-12"
+                onClick={toggleMicrophone}
+              >
+                {micEnabled ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
+              </Button>
+              
+              <Button
+                variant={cameraEnabled ? "default" : "destructive"}
+                size="icon"
+                className="rounded-full w-12 h-12"
+                onClick={toggleCamera}
+              >
+                {cameraEnabled ? <Video className="w-6 h-6" /> : <VideoOff className="w-6 h-6" />}
+              </Button>
+              
+              <Button
+                variant={screenShareEnabled ? "destructive" : "default"}
+                size="icon"
+                className="rounded-full w-12 h-12"
+                onClick={toggleScreenShare}
+              >
+                <ScreenShare className="w-6 h-6" />
+              </Button>
+              
+              <Button
+                variant="destructive"
+                size="icon"
+                className="rounded-full w-12 h-12"
+                onClick={meeting.hostId === user?.id ? endMeeting : leaveMeeting}
+                disabled={leaveMeetingMutation.isPending || endMeetingMutation.isPending}
+              >
+                {(leaveMeetingMutation.isPending || endMeetingMutation.isPending) ? (
+                  <Loader2 className="w-6 h-6 animate-spin" />
+                ) : (
+                  <X className="w-6 h-6" />
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* AI Monitoring Components */}
+      {settings && micEnabled && !settings.alwaysOnModeEnabled && settings.autoMuteEnabled && (
+        <MicMonitor 
+          inactivityThreshold={120000} // 2 minutes
+          muted={false}
+          enabled={true}
+          alertsEnabled={settings.autoMuteAlertsEnabled && !settings.allNotificationsDisabled}
+          vibrationEnabled={settings.vibrationFeedbackEnabled && !settings.allNotificationsDisabled}
+          onAutoMute={toggleMicrophone}
+        />
+      )}
+      
+      {settings && cameraEnabled && !settings.alwaysOnModeEnabled && settings.autoVideoOffEnabled && (
+        <FaceDetector 
+          inactivityThreshold={15000} // 15 seconds
+          cameraOff={false}
+          enabled={true}
+          alertsEnabled={settings.autoVideoAlertsEnabled && !settings.allNotificationsDisabled}
+          vibrationEnabled={settings.vibrationFeedbackEnabled && !settings.allNotificationsDisabled}
+          onAutoVideoOff={toggleCamera}
+        />
+      )}
+    </div>
+  );
+}
