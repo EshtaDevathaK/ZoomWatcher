@@ -15,6 +15,8 @@ import { MicMonitor } from "@/components/media/mic-monitor";
 import { FaceDetector } from "@/components/media/face-detector";
 import { AudioContainer } from "@/components/media/audio-container";
 import { requestPermissions, requestScreenCapture } from "@/lib/media-permissions";
+import { AVStatusMonitor } from '../components/AVStatusMonitor';
+import '../styles/av-status.css';
 
 // Initialize audio context to ensure audio works consistently across browsers
 function initializeAudioContext() {
@@ -902,6 +904,13 @@ export default function MeetingRoom() {
     };
   }, []);
 
+  const handleAVIssueDetected = (issue: string) => {
+    toast.error(issue, {
+      duration: 3000,
+      position: 'top-center',
+    });
+  };
+
   if (isLoadingMeeting) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-900">
@@ -1456,6 +1465,12 @@ export default function MeetingRoom() {
           onAutoVideoOff={toggleCamera}
         />
       )}
+
+      <AVStatusMonitor 
+        localStream={localStreamRef.current}
+        remoteStreams={webrtcParticipants}
+        onAVIssueDetected={handleAVIssueDetected}
+      />
     </div>
   );
 }

@@ -1,0 +1,47 @@
+.av-status-monitor {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: rgba(0, 0, 0, 0.8);
+  padding: 15px;
+  border-radius: 8px;
+  color: white;
+  z-index: 1000;
+  font-size: 14px;
+}
+
+.status-indicator {
+  margin: 5px 0;
+  padding: 5px 10px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-indicator.active {
+  background: rgba(0, 255, 0, 0.2);
+  color: #4caf50;
+}
+
+.status-indicator.inactive {
+  background: rgba(255, 0, 0, 0.2);
+  color: #f44336;
+}
+
+.status-indicator::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 8px;
+}
+
+.status-indicator.active::before {
+  background-color: #4caf50;
+}
+
+.status-indicator.inactive::before {
+  background-color: #f44336;
+} 
