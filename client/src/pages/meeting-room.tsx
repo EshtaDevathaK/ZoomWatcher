@@ -20,6 +20,7 @@ import '../styles/av-status.css';
 import { AVIntegrityMonitor } from '../components/AVIntegrityMonitor';
 import '../styles/av-integrity.css';
 import { AVStatus } from '../components/AVIntegrityMonitor';
+import { createPeerConnection, createWebSocketConnection, addMediaStreamToPeerConnection } from '@/lib/webrtc-utils';
 
 // Initialize audio context to ensure audio works consistently across browsers
 function initializeAudioContext() {
@@ -59,20 +60,29 @@ function initializeAudioContext() {
   }
 }
 
+interface Meeting {
+  id: string;
+  hostId: string;
+  participants: Participant[];
+}
+
+interface MediaState {
+  audio: boolean;
+  video: boolean;
+}
+
 interface WebRTCParticipant {
-  stream: MediaStream;
+  connection: RTCPeerConnection;
+  stream: MediaStream | null;
+  mediaState: MediaState;
   userId: string;
 }
 
 interface Participant {
-  userId: string;
+  id: string;
   username: string;
   displayName: string;
-  stream?: MediaStream;
-  mediaState?: {
-    audio: boolean;
-    video: boolean;
-  };
+  token: string;
 }
 
 interface User {
@@ -80,6 +90,20 @@ interface User {
   username: string;
   displayName: string;
   token: string;
+}
+
+interface WebRTCState {
+  localStream: MediaStream | null;
+  remoteStreams: Map<string, MediaStream>;
+  remoteVideoRefs: Map<string, HTMLVideoElement>;
+  webrtcParticipants: Map<string, WebRTCParticipant>;
+  isConnected: boolean;
+}
+
+interface AVMonitorProps {
+  stream: MediaStream | null;
+  userId: string;
+  muted: boolean;
 }
 
 export default function MeetingRoom() {
@@ -115,8 +139,13 @@ export default function MeetingRoom() {
   const [showParticipantsList, setShowParticipantsList] = useState(false);
   
   // WebRTC state
-  const [participants, setParticipants] = useState<Record<string, Participant>>({});
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [webrtcState, setWebrtcState] = useState<WebRTCState>({
+    localStream: null,
+    remoteStreams: new Map(),
+    remoteVideoRefs: new Map(),
+    webrtcParticipants: new Map(),
+    isConnected: false
+  });
   
   // References
   const localVideoRef = useRef<HTMLVideoElement>(null);
@@ -211,7 +240,10 @@ export default function MeetingRoom() {
           console.log("Video tracks:", mediaStream.getVideoTracks().length);
           console.log("Audio tracks:", mediaStream.getAudioTracks().length);
           
-          setLocalStream(mediaStream);
+          setWebrtcState(prev => ({
+            ...prev,
+            localStream: mediaStream
+          }));
           
           if (localVideoRef.current) {
             console.log("Setting video element source to media stream");
@@ -331,15 +363,15 @@ export default function MeetingRoom() {
     
     // Cleanup function
     return () => {
-      if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
+      if (webrtcState.localStream) {
+        webrtcState.localStream.getTracks().forEach(track => track.stop());
       }
     };
   }, [toast, cameraEnabled, micEnabled]);
 
   // Extra video initialization to ensure video element is properly configured
   useEffect(() => {
-    if (localVideoRef.current && localStream && !videoInitializationAttempted.current) {
+    if (localVideoRef.current && webrtcState.localStream && !videoInitializationAttempted.current) {
       videoInitializationAttempted.current = true;
       console.log("Running additional video initialization for local video element");
       
@@ -357,8 +389,8 @@ export default function MeetingRoom() {
       // Reset source object with a delay
       videoElement.srcObject = null;
       setTimeout(() => {
-        if (videoElement && localStream) {
-          videoElement.srcObject = localStream;
+        if (videoElement && webrtcState.localStream) {
+          videoElement.srcObject = webrtcState.localStream;
           videoElement.play()
             .then(() => console.log("Video playing after additional initialization"))
             .catch(err => {
@@ -372,7 +404,7 @@ export default function MeetingRoom() {
         }
       }, 500);
     }
-  }, [localVideoRef.current, localStream, toast]);
+  }, [localVideoRef.current, webrtcState.localStream, toast]);
 
   // Fetch meeting data
   const { data: meeting, isLoading: isLoadingMeeting } = useQuery<Meeting>({
@@ -442,8 +474,8 @@ export default function MeetingRoom() {
   // Toggle microphone
   const toggleMicrophone = () => {
     console.log("Toggling microphone...");
-    if (localStream) {
-      const audioTracks = localStream.getAudioTracks();
+    if (webrtcState.localStream) {
+      const audioTracks = webrtcState.localStream.getAudioTracks();
       console.log(`Audio tracks found: ${audioTracks.length}`);
       
       if (audioTracks.length === 0) {
@@ -455,7 +487,7 @@ export default function MeetingRoom() {
             const newAudioTrack = audioStream.getAudioTracks()[0];
             if (newAudioTrack) {
               console.log("New audio track obtained, adding to stream");
-              localStream.addTrack(newAudioTrack);
+              webrtcState.localStream.addTrack(newAudioTrack);
               newAudioTrack.enabled = !micEnabled;
               setMicEnabled(!micEnabled);
             }
@@ -477,7 +509,7 @@ export default function MeetingRoom() {
         setMicEnabled(!micEnabled);
         
         // Notify other participants about the state change
-        if (isConnected && sendMediaStateChange) {
+        if (webrtcState.isConnected && sendMediaStateChange) {
           console.log(`Sending audio state change to peers: ${!micEnabled}`);
           sendMediaStateChange('audio', !micEnabled);
         }
@@ -495,8 +527,8 @@ export default function MeetingRoom() {
   // Toggle camera
   const toggleCamera = () => {
     console.log("Toggling camera...");
-    if (localStream) {
-      const videoTracks = localStream.getVideoTracks();
+    if (webrtcState.localStream) {
+      const videoTracks = webrtcState.localStream.getVideoTracks();
       console.log(`Video tracks found: ${videoTracks.length}`);
       
       if (videoTracks.length === 0) {
@@ -508,7 +540,7 @@ export default function MeetingRoom() {
             const newVideoTrack = videoStream.getVideoTracks()[0];
             if (newVideoTrack) {
               console.log("New video track obtained, adding to stream");
-              localStream.addTrack(newVideoTrack);
+              webrtcState.localStream.addTrack(newVideoTrack);
               newVideoTrack.enabled = !cameraEnabled;
               setCameraEnabled(!cameraEnabled);
             }
@@ -530,7 +562,7 @@ export default function MeetingRoom() {
         setCameraEnabled(!cameraEnabled);
         
         // Notify other participants about the state change
-        if (isConnected && sendMediaStateChange) {
+        if (webrtcState.isConnected && sendMediaStateChange) {
           console.log(`Sending video state change to peers: ${!cameraEnabled}`);
           sendMediaStateChange('video', !cameraEnabled);
         }
@@ -550,20 +582,20 @@ export default function MeetingRoom() {
     try {
       if (screenShareEnabled) {
         // Stop screen sharing
-        if (localStream) {
-          const videoTracks = localStream.getVideoTracks();
+        if (webrtcState.localStream) {
+          const videoTracks = webrtcState.localStream.getVideoTracks();
           videoTracks.forEach(track => track.stop());
           
           // Get user video again
           const stream = await navigator.mediaDevices.getUserMedia({ video: true });
           const videoTrack = stream.getVideoTracks()[0];
           
-          if (localStream) {
-            localStream.removeTrack(localStream.getVideoTracks()[0]);
-            localStream.addTrack(videoTrack);
+          if (webrtcState.localStream) {
+            webrtcState.localStream.removeTrack(webrtcState.localStream.getVideoTracks()[0]);
+            webrtcState.localStream.addTrack(videoTrack);
             
             if (localVideoRef.current) {
-              localVideoRef.current.srcObject = localStream;
+              localVideoRef.current.srcObject = webrtcState.localStream;
             }
           }
         }
@@ -572,12 +604,12 @@ export default function MeetingRoom() {
         const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
         const screenTrack = displayStream.getVideoTracks()[0];
         
-        if (localStream) {
-          localStream.removeTrack(localStream.getVideoTracks()[0]);
-          localStream.addTrack(screenTrack);
+        if (webrtcState.localStream) {
+          webrtcState.localStream.removeTrack(webrtcState.localStream.getVideoTracks()[0]);
+          webrtcState.localStream.addTrack(screenTrack);
           
           if (localVideoRef.current) {
-            localVideoRef.current.srcObject = localStream;
+            localVideoRef.current.srcObject = webrtcState.localStream;
           }
           
           // Listen for the end of screen sharing
@@ -588,12 +620,12 @@ export default function MeetingRoom() {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true });
             const videoTrack = stream.getVideoTracks()[0];
             
-            if (localStream) {
-              localStream.removeTrack(screenTrack);
-              localStream.addTrack(videoTrack);
+            if (webrtcState.localStream) {
+              webrtcState.localStream.removeTrack(screenTrack);
+              webrtcState.localStream.addTrack(videoTrack);
               
               if (localVideoRef.current) {
-                localVideoRef.current.srcObject = localStream;
+                localVideoRef.current.srcObject = webrtcState.localStream;
               }
             }
           };
@@ -704,129 +736,72 @@ export default function MeetingRoom() {
   // Effect to ensure remote videos play properly when streams are added
   useEffect(() => {
     // Loop through all participants with streams and make sure they play
-    Object.values(participants).forEach(participant => {
-      if (participant.stream) {
-        const videoElement = document.getElementById(`video-${participant.userId}`);
-        if (videoElement && videoElement.paused) {
-          console.log(`Found paused video for participant ${participant.userId}, attempting to play`);
-          
-          // Force direct styling for better compatibility
-          videoElement.style.display = "block";
-          videoElement.style.visibility = "visible";
-          videoElement.style.width = "100%";
-          videoElement.style.height = "100%";
-          videoElement.style.objectFit = "cover";
-          videoElement.style.borderRadius = "8px";
-          videoElement.style.backgroundColor = "#000000";
-          videoElement.style.zIndex = "5";
-          
-          // Try to play
-          videoElement.play()
-            .then(() => console.log(`Successfully started playback for participant ${participant.userId}`))
-            .catch(err => console.error(`Failed to play video for participant ${participant.userId}:`, err));
-        }
+    Object.values(webrtcState.remoteStreams).forEach(stream => {
+      const videoElement = document.getElementById(`video-${stream.userId}`);
+      if (videoElement && videoElement.paused) {
+        console.log(`Found paused video for participant ${stream.userId}, attempting to play`);
+        
+        // Force direct styling for better compatibility
+        videoElement.style.display = "block";
+        videoElement.style.visibility = "visible";
+        videoElement.style.width = "100%";
+        videoElement.style.height = "100%";
+        videoElement.style.objectFit = "cover";
+        videoElement.style.borderRadius = "8px";
+        videoElement.style.backgroundColor = "#000000";
+        videoElement.style.zIndex = "5";
+        
+        // Try to play
+        videoElement.play()
+          .then(() => console.log(`Successfully started playback for participant ${stream.userId}`))
+          .catch(err => console.error(`Failed to play video for participant ${stream.userId}:`, err));
       }
     });
-  }, [participants]); // Re-run when participants list changes
+  }, [webrtcState.remoteStreams]); // Re-run when participants list changes
 
   // Handle remote participant streams with WebRTC
   const handleParticipantJoined = useCallback((participant: any) => {
     console.log(`Participant joined: ${participant.displayName} (${participant.userId})`);
-    setParticipants(prev => ({
+    setWebrtcState(prev => ({
       ...prev,
-      [participant.userId]: participant
+      webrtcParticipants: new Map(prev.webrtcParticipants).set(participant.userId, participant)
     }));
   }, []);
   
   const handleParticipantLeft = useCallback((userId: string) => {
     console.log(`Participant left: ${userId}`);
-    setWebrtcParticipants(prev => {
-      const newParticipants = { ...prev };
-      delete newParticipants[userId];
-      return newParticipants;
-    });
-    setRemoteStreams(prev => {
-      const newStreams = new Map(prev);
-      newStreams.delete(userId);
-      return newStreams;
+    setWebrtcState(prev => {
+      const newState = { ...prev };
+      newState.remoteStreams.delete(userId);
+      newState.remoteVideoRefs.delete(userId);
+      newState.webrtcParticipants.delete(userId);
+      return newState;
     });
   }, []);
   
-  const handleParticipantStreamAdded = useCallback((stream: MediaStream, userId: string) => {
-    console.log(`Setting up stream for participant ${userId}`, {
-      videoTracks: stream.getVideoTracks().length,
-      audioTracks: stream.getAudioTracks().length
-    });
-
-    // Create or get video container
-    let videoContainer = document.getElementById('video-container');
-    if (!videoContainer) {
-      videoContainer = document.createElement('div');
-      videoContainer.id = 'video-container';
-      document.body.appendChild(videoContainer);
+  const handleParticipantStreamAdded = useCallback((userId: string, stream: MediaStream) => {
+    console.log('Handling participant stream added:', { userId, stream });
+    
+    const videoElement = document.createElement('video');
+    videoElement.autoplay = true;
+    videoElement.playsInline = true;
+    videoElement.muted = userId === user?.id;
+    
+    const container = document.getElementById('video-container');
+    if (container) {
+      container.appendChild(videoElement);
     }
-
-    // Create or get video element for this participant
-    let videoElement = document.getElementById(`video-${userId}`) as HTMLVideoElement;
-    if (!videoElement) {
-      videoElement = document.createElement('video');
-      videoElement.id = `video-${userId}`;
-      videoElement.autoplay = true;
-      videoElement.playsInline = true;
-      videoElement.muted = userId === user?.id?.toString(); // Mute only local video
-      
-      // Set video styles
-      videoElement.style.width = '320px';
-      videoElement.style.height = '240px';
-      videoElement.style.objectFit = 'cover';
-      videoElement.style.margin = '5px';
-      videoElement.style.backgroundColor = '#000';
-      
-      videoContainer.appendChild(videoElement);
-    }
-
-    // Create separate audio element for this participant (if not local)
-    if (userId !== user?.id?.toString()) {
-      let audioElement = document.getElementById(`audio-${userId}`) as HTMLAudioElement;
-      if (!audioElement) {
-        audioElement = document.createElement('audio');
-        audioElement.id = `audio-${userId}`;
-        audioElement.autoplay = true;
-        audioElement.style.display = 'none';
-        document.body.appendChild(audioElement);
-      }
-      audioElement.srcObject = stream;
-    }
-
-    // Set stream to video element
+    
     videoElement.srcObject = stream;
-
-    // Attempt to play the video
-    videoElement.play().catch(error => {
-      console.error(`Error playing video for participant ${userId}:`, error);
-      // Try playing again after a short delay
-      setTimeout(() => {
-        videoElement.play().catch(e => 
-          console.error(`Second attempt to play video for participant ${userId} failed:`, e)
-        );
-      }, 1000);
+    videoElement.play().catch(err => {
+      console.error('Error playing video:', err);
     });
-
-    // Update participant media state
-    setWebrtcParticipants(prev => ({
+    
+    setWebrtcState(prev => ({
       ...prev,
-      [userId]: {
-        ...prev[userId],
-        stream,
-        mediaState: {
-          audio: stream.getAudioTracks().some(track => track.enabled),
-          video: stream.getVideoTracks().some(track => track.enabled)
-        }
-      }
+      remoteStreams: new Map(prev.remoteStreams).set(userId, stream),
+      remoteVideoRefs: new Map(prev.remoteVideoRefs).set(userId, videoElement)
     }));
-
-    // Log success
-    console.log(`Successfully set up media for participant ${userId}`);
   }, [user?.id]);
   
   const handleMeetingEnded = useCallback(() => {
@@ -842,19 +817,19 @@ export default function MeetingRoom() {
     console.log(`Media state changed for participant ${userId}: ${mediaType} ${enabled ? 'enabled' : 'disabled'}`);
     
     // Update participant's media state in our state
-    setWebrtcParticipants(prev => ({
+    setWebrtcState(prev => ({
       ...prev,
-      [userId]: {
-        ...prev[userId],
+      webrtcParticipants: new Map(prev.webrtcParticipants).set(userId, {
+        ...prev.webrtcParticipants.get(userId),
         mediaState: {
-          ...prev[userId].mediaState,
+          ...prev.webrtcParticipants.get(userId)?.mediaState,
           [mediaType]: enabled
         }
-      }
+      })
     }));
     
     // Also update the actual media tracks if we have a stream for this participant
-    const stream = remoteStreams.get(userId);
+    const stream = webrtcState.remoteStreams.get(userId);
     if (stream) {
       console.log(`Updating ${mediaType} tracks for participant ${userId} to ${enabled}`);
       
@@ -875,7 +850,7 @@ export default function MeetingRoom() {
       }
       
       // Update the video element if needed
-      const videoElement = remoteVideoRefs.current.get(userId);
+      const videoElement = webrtcState.remoteVideoRefs.get(userId);
       if (videoElement && mediaType === 'audio') {
         // For audio tracks, we can't use the muted property since that mutes local playback
         // Instead, we handle it through the track's enabled state above
@@ -884,36 +859,107 @@ export default function MeetingRoom() {
     } else {
       console.log(`No stream found for participant ${userId} to update ${mediaType} state`);
     }
-  }, [remoteStreams]);
+  }, [webrtcState.remoteStreams, webrtcState.remoteVideoRefs]);
   
   // Initialize WebRTC when meeting is loaded and local stream is ready
-  const { isConnected, participants: webrtcConnectedParticipants, sendMediaStateChange } = useWebRTC({
-    user: user ? {
-      id: user.id,
-      username: user.username,
-      displayName: user.displayName || user.username
-    } : null,
-    meetingId,
-    localStream: localStreamRef.current,
-    onParticipantJoined: handleParticipantJoined,
-    onParticipantLeft: handleParticipantLeft,
-    onParticipantStreamAdded: handleParticipantStreamAdded,
-    onMediaStateChanged: handleMediaStateChanged,
-    onMeetingEnded: handleMeetingEnded
-  });
-  
-  // Send media state changes to other participants
   useEffect(() => {
-    if (isConnected) {
+    if (!user || !meeting || !webrtcState.localStream) return;
+
+    const initializeWebRTC = async () => {
+      try {
+        const socket = await createWebSocketConnection(user.token);
+        
+        socket.onmessage = async (event) => {
+          const message = JSON.parse(event.data);
+          
+          switch (message.type) {
+            case 'participant-joined': {
+              const participant = message.data as Participant;
+              const peerConnection = createPeerConnection();
+              
+              if (webrtcState.localStream) {
+                addMediaStreamToPeerConnection(peerConnection, webrtcState.localStream);
+              }
+
+              setWebrtcState(prev => ({
+                ...prev,
+                webrtcParticipants: new Map(prev.webrtcParticipants).set(participant.id, {
+                  connection: peerConnection,
+                  stream: null,
+                  mediaState: { audio: true, video: true },
+                  userId: participant.id
+                })
+              }));
+              break;
+            }
+            case 'participant-left':
+              handleParticipantDisconnected(message.data.userId);
+              break;
+            case 'media-state-changed':
+              handleMediaStateChange(
+                message.data.userId,
+                message.data.mediaType as 'audio' | 'video',
+                message.data.enabled
+              );
+              break;
+          }
+        };
+
+        setWebrtcState(prev => ({ ...prev, isConnected: true }));
+
+      } catch (error) {
+        console.error('Error initializing WebRTC:', error);
+        toast({
+          title: 'Connection Error',
+          description: 'Failed to establish connection. Please try again.',
+          variant: 'destructive'
+        });
+      }
+    };
+
+    initializeWebRTC();
+
+    return () => {
+      setWebrtcState(prev => {
+        const newState = { ...prev, isConnected: false };
+        Array.from(newState.webrtcParticipants.values()).forEach(participant => {
+          participant.connection.close();
+        });
+        newState.webrtcParticipants.clear();
+        newState.remoteStreams.clear();
+        newState.remoteVideoRefs.clear();
+        return newState;
+      });
+    };
+  }, [user, meeting, webrtcState.localStream, toast]);
+
+  // Send media state changes to other participants
+  const sendMediaStateChange = useCallback((mediaType: 'audio' | 'video', enabled: boolean) => {
+    if (!webrtcState.isConnected || !user) return;
+
+    Array.from(webrtcState.webrtcParticipants.values()).forEach(participant => {
+      try {
+        const dataChannel = participant.connection.createDataChannel('mediaState');
+        dataChannel.onopen = () => {
+          dataChannel.send(JSON.stringify({ type: mediaType, enabled }));
+        };
+      } catch (error) {
+        console.error('Error sending media state change:', error);
+      }
+    });
+  }, [webrtcState.isConnected, webrtcState.webrtcParticipants, user]);
+  
+  useEffect(() => {
+    if (webrtcState.isConnected) {
       sendMediaStateChange('audio', micEnabled);
     }
-  }, [micEnabled, isConnected, sendMediaStateChange]);
+  }, [micEnabled, webrtcState.isConnected, sendMediaStateChange]);
   
   useEffect(() => {
-    if (isConnected) {
+    if (webrtcState.isConnected) {
       sendMediaStateChange('video', cameraEnabled);
     }
-  }, [cameraEnabled, isConnected, sendMediaStateChange]);
+  }, [cameraEnabled, webrtcState.isConnected, sendMediaStateChange]);
 
   const handleParticipantDisconnected = (userId: string) => {
     console.log(`Cleaning up for disconnected participant ${userId}`);
@@ -929,9 +975,11 @@ export default function MeetingRoom() {
     }
 
     // Update participant state
-    setWebrtcParticipants(prev => {
+    setWebrtcState(prev => {
       const newState = { ...prev };
-      delete newState[userId];
+      newState.remoteStreams.delete(userId);
+      newState.remoteVideoRefs.delete(userId);
+      newState.webrtcParticipants.delete(userId);
       return newState;
     });
   };
@@ -1059,14 +1107,14 @@ export default function MeetingRoom() {
                     <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center text-white font-medium">
                       {user && (meeting as Meeting).hostId === user.id 
                         ? user.displayName?.charAt(0) || user.username.charAt(0)
-                        : (participants as any[])
+                        : (participantsData as any[])
                             ?.find((p: any) => p.user && p.user.id === (meeting as Meeting).hostId)
                             ?.user?.displayName?.charAt(0) || 'H'}
                     </div>
                     <span className="ml-2 text-white">
                       {user && (meeting as Meeting).hostId === user.id 
                         ? 'You (Host)'
-                        : (participants as any[])
+                        : (participantsData as any[])
                             ?.find((p: any) => p.user && p.user.id === (meeting as Meeting).hostId)
                             ?.user?.displayName || 'Host'}
                     </span>
@@ -1077,8 +1125,8 @@ export default function MeetingRoom() {
                 <div>
                   <h4 className="text-white text-sm font-medium mb-2">Participants</h4>
                   
-                  {participants && participants.length > 0 ? (
-                    participants
+                  {participantsData && participantsData.length > 0 ? (
+                    participantsData
                       .filter((p: any) => p.user && p.user.id !== (meeting as Meeting).hostId)
                       .map((participant: any) => (
                         <div key={participant.id} className="flex items-center p-2 rounded hover:bg-gray-700">
@@ -1231,11 +1279,11 @@ export default function MeetingRoom() {
                           localVideoRef.current.style.visibility = 'visible';
                           
                           // Reset video source as a fallback approach
-                          if (localStreamRef.current) {
+                          if (webrtcState.localStream) {
                             localVideoRef.current.srcObject = null;
                             setTimeout(() => {
-                              if (localVideoRef.current && localStreamRef.current) {
-                                localVideoRef.current.srcObject = localStreamRef.current;
+                              if (localVideoRef.current && webrtcState.localStream) {
+                                localVideoRef.current.srcObject = webrtcState.localStream;
                               }
                             }, 100);
                           }
@@ -1303,141 +1351,140 @@ export default function MeetingRoom() {
                     <div className="bg-gray-800 rounded-lg overflow-hidden aspect-video flex items-center justify-center">
                       <Loader2 className="h-8 w-8 animate-spin text-white" />
                     </div>
-                  ) : participants && participants.length > 0 ? (
-                    participants
-                      .filter((p: any) => p.user && p.user.id !== user?.id)
-                      .map((participant: any) => {
-                        // Find matching WebRTC participant if available
-                        const webrtcParticipant = webrtcParticipants[participant.user.id];
-                        const hasStream = webrtcParticipant?.stream != null;
-                        
-                        // Set up ref callback for this participant's video
-                        const videoRef = (element: HTMLVideoElement | null) => {
-                          if (element) {
-                            remoteVideoRefs.current.set(participant.user.id, element);
-                            // Attach stream if already available
-                            if (webrtcParticipant?.stream) {
-                              element.srcObject = webrtcParticipant.stream;
-                              element.play().catch(err => console.error("Error playing remote video:", err));
-                            }
+                  ) : webrtcState.remoteStreams.size > 0 ? (
+                    Array.from(webrtcState.remoteStreams).map(([userId, stream]) => {
+                      const webrtcParticipant = webrtcState.webrtcParticipants.get(userId);
+                      const hasStream = webrtcParticipant?.stream != null;
+                      
+                      const videoRef = (element: HTMLVideoElement | null) => {
+                        if (element) {
+                          webrtcState.remoteVideoRefs.set(userId, element);
+                          if (webrtcParticipant?.stream) {
+                            element.srcObject = webrtcParticipant.stream;
+                            element.play().catch(err => console.error("Error playing remote video:", err));
                           }
-                        };
-                        
-                        return (
-                          <div key={participant.id} className="bg-gray-800 rounded-lg overflow-hidden aspect-video relative">
-                            {/* Avatar placeholder - always visible unless video is rendering properly */}
-                            <div className="w-full h-full flex items-center justify-center absolute inset-0 z-0">
-                              <div className="bg-gray-700 rounded-full h-24 w-24 flex items-center justify-center text-3xl text-white">
-                                {participant.user.displayName.charAt(0)}
-                              </div>
+                        }
+                      };
+                      
+                      return (
+                        <div key={userId} className="bg-gray-800 rounded-lg overflow-hidden aspect-video relative">
+                          {/* Avatar placeholder - always visible unless video is rendering properly */}
+                          <div className="w-full h-full flex items-center justify-center absolute inset-0 z-0">
+                            <div className="bg-gray-700 rounded-full h-24 w-24 flex items-center justify-center text-3xl text-white">
+                              {webrtcParticipant?.mediaState?.video ? (
+                                <Video className="w-4 h-4 text-green-500" />
+                              ) : (
+                                <VideoOff className="w-4 h-4 text-red-500" />
+                              )}
                             </div>
-                            
-                            {/* Audio container for this participant's audio */}
-                            {hasStream && remoteStreams.has(participant.user.id) && (
-                              <AudioContainer 
-                                stream={remoteStreams.get(participant.user.id) || null}
-                                userId={participant.user.id}
-                                muted={webrtcParticipant?.mediaState?.audio === false}
-                              />
-                            )}
-                            
-                            {hasStream && (
-                              // Show remote video stream with z-index to go on top of avatar
-                              <video
-                                ref={videoRef}
-                                autoPlay
-                                playsInline
-                                className="w-full h-full object-cover"
-                                id={`remote-video-${participant.user.id}`}
-                                style={{ 
-                                  position: 'relative',
-                                  zIndex: 5,
-                                  backgroundColor: '#000000',
-                                  display: 'block',
-                                  visibility: 'visible',
-                                  width: '100%',
-                                  height: '100%',
-                                  borderRadius: '8px'
-                                }}
-                                // Always mute the video element as audio is handled by AudioContainer
-                                muted={true}
-                                onClick={(e) => {
-                                  // Force play on click for browsers that require interaction
-                                  console.log(`Video clicked for participant ${participant.user.id}, forcing play`);
-                                  if (e.currentTarget) {
-                                    // Make sure the video is visible
-                                    e.currentTarget.style.display = 'block';
-                                    e.currentTarget.style.visibility = 'visible';
-                                    
-                                    // Reset video source as a fallback approach
-                                    const stream = e.currentTarget.srcObject;
-                                    if (stream) {
-                                      e.currentTarget.srcObject = null;
-                                      setTimeout(() => {
-                                        if (e.currentTarget) {
-                                          e.currentTarget.srcObject = stream;
-                                          e.currentTarget.play()
-                                            .then(() => console.log(`Remote video for ${participant.user.id} playing after click`))
-                                            .catch(err => console.error(`Error playing video for ${participant.user.id} after click:`, err));
-                                        }
-                                      }, 100);
+                          </div>
+                          
+                          {/* Audio container for this participant's audio */}
+                          {hasStream && (
+                            <AudioContainer 
+                              stream={stream}
+                              userId={userId}
+                              muted={webrtcParticipant?.mediaState?.audio === false}
+                            />
+                          )}
+                          
+                          {hasStream && (
+                            // Show remote video stream with z-index to go on top of avatar
+                            <video
+                              ref={videoRef}
+                              autoPlay
+                              playsInline
+                              className="w-full h-full object-cover"
+                              id={`remote-video-${userId}`}
+                              style={{ 
+                                position: 'relative',
+                                zIndex: 5,
+                                backgroundColor: '#000000',
+                                display: 'block',
+                                visibility: 'visible',
+                                width: '100%',
+                                height: '100%',
+                                borderRadius: '8px'
+                              }}
+                              // Always mute the video element as audio is handled by AudioContainer
+                              muted={true}
+                              onClick={(e) => {
+                                // Force play on click for browsers that require interaction
+                                console.log(`Video clicked for participant ${userId}, forcing play`);
+                                if (e.currentTarget) {
+                                  // Make sure the video is visible
+                                  e.currentTarget.style.display = 'block';
+                                  e.currentTarget.style.visibility = 'visible';
+                                  
+                                  // Reset video source as a fallback approach
+                                  const stream = e.currentTarget.srcObject;
+                                  if (stream) {
+                                    e.currentTarget.srcObject = null;
+                                    setTimeout(() => {
+                                      if (e.currentTarget) {
+                                        e.currentTarget.srcObject = stream;
+                                        e.currentTarget.play()
+                                          .then(() => console.log(`Remote video for ${userId} playing after click`))
+                                          .catch(err => console.error(`Error playing video for ${userId} after click:`, err));
+                                      }
+                                    }, 100);
+                                  } else {
+                                    // Try to play anyway
+                                    e.currentTarget.play()
+                                      .then(() => console.log(`Remote video for ${userId} playing after click`))
+                                      .catch(err => console.error(`Error playing video for ${userId}:`, err));
+                                  }
+                                }
+                              }}
+                            />
+                          )}
+                          
+                          {/* Remote video controls */}
+                          {hasStream && (
+                            <div className="absolute top-2 right-2 flex space-x-2">
+                              <button 
+                                onClick={() => {
+                                  const videoElement = document.getElementById(`remote-video-${userId}`);
+                                  if (videoElement && videoElement instanceof HTMLVideoElement) {
+                                    if (document.fullscreenElement) {
+                                      document.exitFullscreen();
                                     } else {
-                                      // Try to play anyway
-                                      e.currentTarget.play()
-                                        .then(() => console.log(`Remote video for ${participant.user.id} playing after click`))
-                                        .catch(err => console.error(`Error playing video for ${participant.user.id}:`, err));
+                                      videoElement.requestFullscreen();
                                     }
                                   }
                                 }}
-                              />
-                            )}
-                            
-                            {/* Remote video controls */}
-                            {hasStream && (
-                              <div className="absolute top-2 right-2 flex space-x-2">
-                                <button 
-                                  onClick={() => {
-                                    const videoElement = document.getElementById(`remote-video-${participant.user.id}`);
-                                    if (videoElement && videoElement instanceof HTMLVideoElement) {
-                                      if (document.fullscreenElement) {
-                                        document.exitFullscreen();
-                                      } else {
-                                        videoElement.requestFullscreen();
-                                      }
-                                    }
-                                  }}
-                                  className="bg-black bg-opacity-50 rounded-full p-1 hover:bg-opacity-70 transition-all"
-                                  title="Fullscreen"
-                                >
-                                  <Maximize className="w-4 h-4 text-white" />
-                                </button>
-                              </div>
-                            )}
-                            
-                            <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 p-2">
-                              <div className="flex justify-between items-center">
-                                <span className="text-white text-sm">{participant.user.displayName}</span>
-                                <div className="flex space-x-1">
-                                  <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
-                                    {webrtcParticipant?.mediaState?.video ? (
-                                      <Video className="w-4 h-4 text-green-500" />
-                                    ) : (
-                                      <VideoOff className="w-4 h-4 text-red-500" />
-                                    )}
-                                  </span>
-                                  <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
-                                    {webrtcParticipant?.mediaState?.audio ? (
-                                      <Mic className="w-4 h-4 text-green-500" />
-                                    ) : (
-                                      <MicOff className="w-4 h-4 text-red-500" />
-                                    )}
-                                  </span>
-                                </div>
+                                className="bg-black bg-opacity-50 rounded-full p-1 hover:bg-opacity-70 transition-all"
+                                title="Fullscreen"
+                              >
+                                <Maximize className="w-4 h-4 text-white" />
+                              </button>
+                            </div>
+                          )}
+                          
+                          <div className="absolute bottom-0 left-0 right-0 bg-black bg-opacity-50 p-2">
+                            <div className="flex justify-between items-center">
+                              <span className="text-white text-sm">{webrtcParticipant?.mediaState?.video ? "Active" : "Inactive"}</span>
+                              <div className="flex space-x-1">
+                                <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
+                                  {webrtcParticipant?.mediaState?.video ? (
+                                    <Video className="w-4 h-4 text-green-500" />
+                                  ) : (
+                                    <VideoOff className="w-4 h-4 text-red-500" />
+                                  )}
+                                </span>
+                                <span className="w-6 h-6 bg-gray-700 rounded-full flex items-center justify-center">
+                                  {webrtcParticipant?.mediaState?.audio ? (
+                                    <Mic className="w-4 h-4 text-green-500" />
+                                  ) : (
+                                    <MicOff className="w-4 h-4 text-red-500" />
+                                  )}
+                                </span>
                               </div>
                             </div>
                           </div>
-                        );
-                      })
+                        </div>
+                      );
+                    })
                   ) : (
                     <div className="bg-gray-800 rounded-lg overflow-hidden aspect-video flex items-center justify-center text-white">
                       <p>No other participants yet</p>
@@ -1501,8 +1548,8 @@ export default function MeetingRoom() {
       {/* AI Monitoring Components */}
       {settings && micEnabled && !settings.alwaysOnModeEnabled && settings.autoMuteEnabled && (
         <MicMonitor 
-          inactivityThreshold={120000} // 2 minutes
-          muted={false}
+          inactivityThreshold={120000}
+          muted={!micEnabled}
           enabled={true}
           alertsEnabled={settings.autoMuteAlertsEnabled && !settings.allNotificationsDisabled}
           vibrationEnabled={settings.vibrationFeedbackEnabled && !settings.allNotificationsDisabled}
@@ -1512,8 +1559,8 @@ export default function MeetingRoom() {
       
       {settings && cameraEnabled && !settings.alwaysOnModeEnabled && settings.autoVideoOffEnabled && (
         <FaceDetector 
-          inactivityThreshold={15000} // 15 seconds
-          cameraOff={false}
+          inactivityThreshold={15000}
+          cameraOff={!cameraEnabled}
           enabled={true}
           alertsEnabled={settings.autoVideoAlertsEnabled && !settings.allNotificationsDisabled}
           vibrationEnabled={settings.vibrationFeedbackEnabled && !settings.allNotificationsDisabled}
@@ -1522,15 +1569,15 @@ export default function MeetingRoom() {
       )}
 
       <AVStatusMonitor 
-        localStream={localStreamRef.current}
-        remoteStreams={webrtcParticipants}
+        localStream={webrtcState.localStream}
+        remoteStreams={webrtcState.remoteStreams}
         onAVIssueDetected={handleAVIssueDetected}
       />
 
       <AVIntegrityMonitor
-        localStream={localStreamRef.current}
-        remoteStreams={webrtcParticipants}
-        isHost={true}
+        stream={webrtcState.localStream}
+        remoteStreams={webrtcState.remoteStreams}
+        isHost={user?.id === meeting?.hostId}
         onIssueDetected={handleAVIssueDetected}
         onStatusChange={handleAVStatusChange}
       />

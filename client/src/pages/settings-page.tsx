@@ -141,9 +141,7 @@ export default function SettingsPage() {
       if (!user) return;
 
       try {
-        const response = await apiRequest(`/api/users/${user.id}/settings`, {
-          method: 'GET'
-        });
+        const response = await apiRequest('GET', `/api/users/${user.id}/settings`);
 
         if (response.ok) {
           const data = await response.json();
@@ -167,8 +165,7 @@ export default function SettingsPage() {
 
     setIsLoading(true);
     try {
-      const response = await apiRequest(`/api/users/${user.id}/settings`, {
-        method: 'PATCH',
+      const response = await apiRequest('PATCH', `/api/users/${user.id}/settings`, {
         body: JSON.stringify(newSettings)
       });
 

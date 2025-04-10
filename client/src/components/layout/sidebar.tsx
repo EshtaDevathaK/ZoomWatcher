@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Home, Users, Clock, Settings, LogOut, Menu } from "lucide-react";
-import { Logo } from "@/components/ui/logo";
+import Logo from "@/components/ui/logo";
 
 export function Sidebar() {
   const { user, logoutMutation } = useAuth();

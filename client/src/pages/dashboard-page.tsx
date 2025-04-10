@@ -62,9 +62,9 @@ export default function DashboardPage() {
 
       try {
         const [statsResponse, meetingsResponse, settingsResponse] = await Promise.all([
-          apiRequest('/api/stats', { method: 'GET' }),
-          apiRequest('/api/meetings', { method: 'GET' }),
-          apiRequest(`/api/users/${user.id}/settings`, { method: 'GET' })
+          apiRequest('GET', '/api/stats'),
+          apiRequest('GET', '/api/meetings'),
+          apiRequest('GET', `/api/users/${user.id}/settings`)
         ]);
 
         if (statsResponse.ok) {

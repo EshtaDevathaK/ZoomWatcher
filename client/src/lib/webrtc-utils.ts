@@ -2,8 +2,6 @@
  * WebRTC utilities for peer-to-peer connections in meetings
  */
 
-import { toast } from 'sonner';
-
 // Configuration for WebRTC peer connections
 const config: RTCConfiguration = {
   iceServers: [

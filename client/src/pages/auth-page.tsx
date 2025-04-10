@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Logo } from "@/components/ui/logo";
+import Logo from "@/components/ui/logo";
 
 // Login form schema
 const loginSchema = z.object({
