@@ -730,34 +730,46 @@ export default function MeetingRoom() {
     });
   }, []);
   
-  const handleParticipantStreamAdded = useCallback((userId: number, stream: MediaStream) => {
+  const handleParticipantStreamAdded = (userId: string, stream: MediaStream) => {
     console.log(`Setting up video for participant ${userId}`);
     
-    // Create or get video element
+    // Create or get video element for this participant
     let videoElement = document.getElementById(`video-${userId}`) as HTMLVideoElement;
     if (!videoElement) {
       videoElement = document.createElement('video');
       videoElement.id = `video-${userId}`;
       videoElement.autoplay = true;
       videoElement.playsInline = true;
-      videoElement.muted = userId === user?.id; // Mute only local video
+      videoElement.muted = userId === user?.id; // Mute local video
       
-      // Add to video container
-      const container = document.getElementById('video-container');
-      if (container) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'relative w-full h-full';
-        wrapper.appendChild(videoElement);
-        container.appendChild(wrapper);
+      // Add video element to container
+      const videoContainer = document.getElementById('video-container');
+      if (videoContainer) {
+        console.log(`Adding video element for participant ${userId} to container`);
+        videoContainer.appendChild(videoElement);
+      } else {
+        console.error('Video container not found');
+        return;
       }
     }
 
-    // Set stream and play
+    // Set stream and try to play
     videoElement.srcObject = stream;
-    videoElement.play().catch(err => {
-      console.error(`Error playing video for participant ${userId}:`, err);
+    videoElement.play().catch(error => {
+      console.error(`Error playing video for participant ${userId}:`, error);
     });
-  }, [user?.id]);
+
+    // Update participant media state
+    setWebrtcParticipants(prevState => ({
+      ...prevState,
+      [userId]: {
+        ...prevState[userId],
+        hasVideo: stream.getVideoTracks().length > 0,
+        hasAudio: stream.getAudioTracks().length > 0,
+        stream: stream
+      }
+    }));
+  };
   
   const handleMeetingEnded = useCallback(() => {
     toast({
@@ -849,6 +861,46 @@ export default function MeetingRoom() {
       sendMediaStateChange('video', cameraEnabled);
     }
   }, [cameraEnabled, isConnected, sendMediaStateChange]);
+
+  const handleParticipantDisconnected = (userId: string) => {
+    console.log(`Cleaning up for disconnected participant ${userId}`);
+    
+    // Remove video element
+    const videoElement = document.getElementById(`video-${userId}`);
+    if (videoElement) {
+      const stream = (videoElement as HTMLVideoElement).srcObject as MediaStream;
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+      }
+      videoElement.remove();
+    }
+
+    // Update participant state
+    setWebrtcParticipants(prevState => {
+      const newState = { ...prevState };
+      delete newState[userId];
+      return newState;
+    });
+  };
+
+  useEffect(() => {
+    // Cleanup on unmount
+    return () => {
+      const videoContainer = document.getElementById('video-container');
+      if (videoContainer) {
+        // Stop all streams and remove video elements
+        Array.from(videoContainer.children).forEach(child => {
+          if (child instanceof HTMLVideoElement) {
+            const stream = child.srcObject as MediaStream;
+            if (stream) {
+              stream.getTracks().forEach(track => track.stop());
+            }
+            child.remove();
+          }
+        });
+      }
+    };
+  }, []);
 
   if (isLoadingMeeting) {
     return (

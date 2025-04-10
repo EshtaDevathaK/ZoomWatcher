@@ -11,7 +11,10 @@ const iceServers = {
         'stun:stun2.l.google.com:19302',
         'stun:stun3.l.google.com:19302',
         'stun:stun4.l.google.com:19302',
-        'stun:stun.stunprotocol.org:3478'
+        'stun:stun.stunprotocol.org:3478',
+        'stun:stun.ekiga.net:3478',
+        'stun:stun.ideasip.com:3478',
+        'stun:stun.schlund.de:3478'
       ]
     },
     // Free TURN servers (for testing only - replace with your own TURN server in production)
@@ -269,106 +272,59 @@ export async function createAnswer(
  * @param peerConnection The RTCPeerConnection to add tracks to
  * @param stream The MediaStream to add
  */
-export function addMediaStreamToPeerConnection(peerConnection: RTCPeerConnection, stream: MediaStream): void {
+export async function addMediaStreamToPeerConnection(pc: RTCPeerConnection, stream: MediaStream | null) {
   if (!stream) {
-    console.error("Cannot add null stream to peer connection");
+    console.error('No media stream provided');
     return;
   }
 
-  console.log('Adding media stream to peer connection:', {
-    audioTracks: stream.getAudioTracks().length,
-    videoTracks: stream.getVideoTracks().length,
-    streamId: stream.id
-  });
+  // Remove all existing senders first
+  const senders = pc.getSenders();
+  for (const sender of senders) {
+    pc.removeTrack(sender);
+  }
 
-  // Remove all existing senders to avoid duplicates
-  const senders = peerConnection.getSenders();
-  senders.forEach(sender => {
-    try {
-      if (sender.track) {
-        console.log(`Removing existing ${sender.track.kind} track:`, sender.track.id);
-        sender.track.stop();
-      }
-      peerConnection.removeTrack(sender);
-    } catch (err) {
-      console.warn('Error removing track:', err);
+  // Log stream details
+  console.log('Adding media stream with tracks:', stream.getTracks().length);
+  console.log('Audio tracks:', stream.getAudioTracks().length);
+  console.log('Video tracks:', stream.getVideoTracks().length);
+
+  // Add each track from the stream
+  for (const track of stream.getTracks()) {
+    console.log(`Adding track: ${track.kind}, ID: ${track.id}`);
+    console.log(`Track state - enabled: ${track.enabled}, muted: ${track.muted}, readyState: ${track.readyState}`);
+    
+    // Ensure track is enabled
+    track.enabled = true;
+
+    // Set specific parameters for video tracks
+    if (track.kind === 'video') {
+      track.contentHint = 'detail';  // Optimize for quality
     }
-  });
 
-  // Add all tracks from the stream
-  stream.getTracks().forEach(track => {
     try {
-      // Ensure track is enabled and not muted
-      track.enabled = true;
-      track.muted = false;
-      
-      console.log(`Adding ${track.kind} track to peer connection:`, {
-        id: track.id,
-        enabled: track.enabled,
-        muted: track.muted,
-        readyState: track.readyState,
-        settings: track.getSettings()
-      });
+      const sender = pc.addTrack(track, stream);
+      console.log(`Track added successfully, sender created: ${sender.track?.kind}`);
 
-      // Add the track to the peer connection with the stream
-      const sender = peerConnection.addTrack(track, stream);
-
-      // Set parameters for video tracks
-      if (track.kind === 'video' && sender.setParameters) {
+      // Set encoding parameters for video tracks
+      if (track.kind === 'video' && sender) {
         const params = sender.getParameters();
         if (!params.encodings) {
           params.encodings = [{}];
         }
-        sender.setParameters({
-          ...params,
-          degradationPreference: 'maintain-framerate',
-          encodings: [
-            {
-              maxBitrate: 1000000, // 1 Mbps
-              maxFramerate: 30,
-              scaleResolutionDownBy: 1.0
-            }
-          ]
-        }).catch(err => console.warn('Error setting video parameters:', err));
+        params.encodings[0].maxBitrate = 2500000; // 2.5 Mbps
+        params.encodings[0].maxFramerate = 30;
+        await sender.setParameters(params);
       }
-
-      // Monitor track status
-      track.onended = () => {
-        console.log(`Track ${track.id} ended, removing from peer connection`);
-        try {
-          const sender = peerConnection.getSenders().find(s => s.track === track);
-          if (sender) {
-            peerConnection.removeTrack(sender);
-          }
-        } catch (err) {
-          console.warn('Error removing ended track:', err);
-        }
-      };
-
-      // Add track event listeners
-      track.onmute = () => {
-        console.log(`Track ${track.id} muted`);
-        track.enabled = false;
-      };
-
-      track.onunmute = () => {
-        console.log(`Track ${track.id} unmuted`);
-        track.enabled = true;
-      };
-
-    } catch (err) {
-      console.error(`Failed to add ${track.kind} track to peer connection:`, err);
+    } catch (error) {
+      console.error(`Error adding track to peer connection:`, error);
     }
-  });
+  }
 
   // Log final state
-  console.log('Current tracks in peer connection:', {
-    senders: peerConnection.getSenders().length,
-    audioTracks: stream.getAudioTracks().length,
-    videoTracks: stream.getVideoTracks().length,
-    connectionState: peerConnection.connectionState,
-    iceConnectionState: peerConnection.iceConnectionState
-  });
+  console.log('Current peer connection state:', pc.connectionState);
+  console.log('Current ICE connection state:', pc.iceConnectionState);
+  console.log('Number of senders after adding tracks:', pc.getSenders().length);
 }
 
 /**
