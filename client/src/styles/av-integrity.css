@@ -1,0 +1,62 @@
+.av-integrity-monitor {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  background: rgba(0, 0, 0, 0.85);
+  padding: 15px;
+  border-radius: 10px;
+  color: white;
+  font-size: 14px;
+  z-index: 1000;
+  min-width: 250px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  backdrop-filter: blur(5px);
+}
+
+.status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin: 4px 0;
+  border-radius: 6px;
+  transition: all 0.3s ease;
+}
+
+.status-indicator.success {
+  background: rgba(46, 213, 115, 0.2);
+  border-left: 3px solid #2ed573;
+}
+
+.status-indicator.error {
+  background: rgba(255, 71, 87, 0.2);
+  border-left: 3px solid #ff4757;
+}
+
+.status-indicator::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-indicator.success::before {
+  background-color: #2ed573;
+  box-shadow: 0 0 8px #2ed573;
+}
+
+.status-indicator.error::before {
+  background-color: #ff4757;
+  box-shadow: 0 0 8px #ff4757;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+  100% { transform: scale(1); }
+}
+
+.status-indicator.error {
+  animation: pulse 2s infinite;
+} 

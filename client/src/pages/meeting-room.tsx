@@ -17,6 +17,8 @@ import { AudioContainer } from "@/components/media/audio-container";
 import { requestPermissions, requestScreenCapture } from "@/lib/media-permissions";
 import { AVStatusMonitor } from '../components/AVStatusMonitor';
 import '../styles/av-status.css';
+import { AVIntegrityMonitor } from '../components/AVIntegrityMonitor';
+import '../styles/av-integrity.css';
 
 // Initialize audio context to ensure audio works consistently across browsers
 function initializeAudioContext() {
@@ -904,11 +906,15 @@ export default function MeetingRoom() {
     };
   }, []);
 
+  const [avIssues, setAvIssues] = useState<string[]>([]);
+
   const handleAVIssueDetected = (issue: string) => {
-    toast.error(issue, {
-      duration: 3000,
-      position: 'top-center',
-    });
+    setAvIssues(prev => [...prev, issue]);
+  };
+
+  const handleAVStatusChange = (status: AVStatus) => {
+    // You can use this to update UI elements or trigger other actions
+    console.log('AV Status Updated:', status);
   };
 
   if (isLoadingMeeting) {
@@ -1470,6 +1476,14 @@ export default function MeetingRoom() {
         localStream={localStreamRef.current}
         remoteStreams={webrtcParticipants}
         onAVIssueDetected={handleAVIssueDetected}
+      />
+
+      <AVIntegrityMonitor
+        localStream={localStreamRef.current}
+        remoteStreams={webrtcParticipants}
+        isHost={isHost}
+        onIssueDetected={handleAVIssueDetected}
+        onStatusChange={handleAVStatusChange}
       />
     </div>
   );
