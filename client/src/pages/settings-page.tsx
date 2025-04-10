@@ -12,7 +12,8 @@ import { Loader2 } from "lucide-react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel } from "@/components/ui/form";
+import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Separator } from "@/components/ui/separator";
 
 // Define schema for updating user profile
 const userProfileSchema = z.object({
@@ -22,13 +23,33 @@ const userProfileSchema = z.object({
 
 type UserProfileFormValues = z.infer<typeof userProfileSchema>;
 
+interface UserSettings {
+  autoMuteEnabled: boolean;
+  autoVideoOffEnabled: boolean;
+  alwaysOnModeEnabled: boolean;
+  autoMuteAlertsEnabled: boolean;
+  autoVideoAlertsEnabled: boolean;
+  vibrationFeedbackEnabled: boolean;
+  allNotificationsDisabled: boolean;
+}
+
 export default function SettingsPage() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [isFormDirty, setIsFormDirty] = useState(false);
+  const [settings, setSettings] = useState<UserSettings>({
+    autoMuteEnabled: false,
+    autoVideoOffEnabled: false,
+    alwaysOnModeEnabled: false,
+    autoMuteAlertsEnabled: true,
+    autoVideoAlertsEnabled: true,
+    vibrationFeedbackEnabled: true,
+    allNotificationsDisabled: false
+  });
+  const [isLoading, setIsLoading] = useState(false);
 
   // Fetch user settings
-  const { data: settings, isLoading: isLoadingSettings } = useQuery({
+  const { data: settingsData, isLoading: isLoadingSettings } = useQuery({
     queryKey: ["/api/settings"],
     enabled: !!user,
   });
@@ -115,6 +136,61 @@ export default function SettingsPage() {
     updateProfileMutation.mutate(data);
   };
 
+  useEffect(() => {
+    const loadSettings = async () => {
+      if (!user) return;
+
+      try {
+        const response = await apiRequest(`/api/users/${user.id}/settings`, {
+          method: 'GET'
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setSettings(data);
+        }
+      } catch (error) {
+        console.error('Error loading settings:', error);
+        toast({
+          title: 'Error',
+          description: 'Failed to load settings. Please try again.',
+          variant: 'destructive'
+        });
+      }
+    };
+
+    loadSettings();
+  }, [user, toast]);
+
+  const saveSettings = async (newSettings: Partial<UserSettings>) => {
+    if (!user) return;
+
+    setIsLoading(true);
+    try {
+      const response = await apiRequest(`/api/users/${user.id}/settings`, {
+        method: 'PATCH',
+        body: JSON.stringify(newSettings)
+      });
+
+      if (response.ok) {
+        setSettings(prev => ({ ...prev, ...newSettings }));
+        toast({
+          title: 'Success',
+          description: 'Settings updated successfully.'
+        });
+      }
+    } catch (error) {
+      console.error('Error saving settings:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to save settings. Please try again.',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="flex flex-col min-h-screen bg-gray-50">
       <Sidebar />
@@ -140,9 +216,9 @@ export default function SettingsPage() {
                     <p className="text-sm text-gray-500">Automatically mute your microphone after 2 minutes of silence</p>
                   </div>
                   <Switch
-                    checked={settings?.autoMuteEnabled || false}
-                    onCheckedChange={(checked) => toggleSetting("autoMuteEnabled", checked)}
-                    disabled={updateSettingsMutation.isPending}
+                    checked={settings.autoMuteEnabled}
+                    onCheckedChange={(checked) => saveSettings({ autoMuteEnabled: checked })}
+                    disabled={isLoading}
                   />
                 </div>
                 
@@ -153,9 +229,9 @@ export default function SettingsPage() {
                     <p className="text-sm text-gray-500">Automatically turn off camera after 15 seconds of no face detected</p>
                   </div>
                   <Switch
-                    checked={settings?.autoVideoOffEnabled || false}
-                    onCheckedChange={(checked) => toggleSetting("autoVideoOffEnabled", checked)}
-                    disabled={updateSettingsMutation.isPending}
+                    checked={settings.autoVideoOffEnabled}
+                    onCheckedChange={(checked) => saveSettings({ autoVideoOffEnabled: checked })}
+                    disabled={isLoading}
                   />
                 </div>
                 
@@ -166,9 +242,9 @@ export default function SettingsPage() {
                     <p className="text-sm text-gray-500">Prevent auto-muting & auto-video off</p>
                   </div>
                   <Switch
-                    checked={settings?.alwaysOnModeEnabled || false}
-                    onCheckedChange={(checked) => toggleSetting("alwaysOnModeEnabled", checked)}
-                    disabled={updateSettingsMutation.isPending}
+                    checked={settings.alwaysOnModeEnabled}
+                    onCheckedChange={(checked) => saveSettings({ alwaysOnModeEnabled: checked })}
+                    disabled={isLoading}
                   />
                 </div>
               </div>
@@ -194,9 +270,9 @@ export default function SettingsPage() {
                     <p className="text-sm text-gray-500">Show alerts when microphone is auto-muted</p>
                   </div>
                   <Switch
-                    checked={settings?.autoMuteAlertsEnabled || false}
-                    onCheckedChange={(checked) => toggleSetting("autoMuteAlertsEnabled", checked)}
-                    disabled={updateSettingsMutation.isPending || settings?.allNotificationsDisabled}
+                    checked={settings.autoMuteAlertsEnabled}
+                    onCheckedChange={(checked) => saveSettings({ autoMuteAlertsEnabled: checked })}
+                    disabled={isLoading || settings.allNotificationsDisabled}
                   />
                 </div>
                 
@@ -207,9 +283,9 @@ export default function SettingsPage() {
                     <p className="text-sm text-gray-500">Show alerts when camera is auto-turned off</p>
                   </div>
                   <Switch
-                    checked={settings?.autoVideoAlertsEnabled || false}
-                    onCheckedChange={(checked) => toggleSetting("autoVideoAlertsEnabled", checked)}
-                    disabled={updateSettingsMutation.isPending || settings?.allNotificationsDisabled}
+                    checked={settings.autoVideoAlertsEnabled}
+                    onCheckedChange={(checked) => saveSettings({ autoVideoAlertsEnabled: checked })}
+                    disabled={isLoading || settings.allNotificationsDisabled}
                   />
                 </div>
                 
@@ -220,9 +296,9 @@ export default function SettingsPage() {
                     <p className="text-sm text-gray-500">Enable vibration when actions are taken</p>
                   </div>
                   <Switch
-                    checked={settings?.vibrationFeedbackEnabled || false}
-                    onCheckedChange={(checked) => toggleSetting("vibrationFeedbackEnabled", checked)}
-                    disabled={updateSettingsMutation.isPending || settings?.allNotificationsDisabled}
+                    checked={settings.vibrationFeedbackEnabled}
+                    onCheckedChange={(checked) => saveSettings({ vibrationFeedbackEnabled: checked })}
+                    disabled={isLoading || settings.allNotificationsDisabled}
                   />
                 </div>
                 
@@ -233,9 +309,9 @@ export default function SettingsPage() {
                     <p className="text-sm text-gray-500">Completely silence pop-ups & vibrations</p>
                   </div>
                   <Switch
-                    checked={settings?.allNotificationsDisabled || false}
-                    onCheckedChange={(checked) => toggleSetting("allNotificationsDisabled", checked)}
-                    disabled={updateSettingsMutation.isPending}
+                    checked={settings.allNotificationsDisabled}
+                    onCheckedChange={(checked) => saveSettings({ allNotificationsDisabled: checked })}
+                    disabled={isLoading}
                   />
                 </div>
               </div>

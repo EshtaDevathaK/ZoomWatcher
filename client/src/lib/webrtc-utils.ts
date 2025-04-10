@@ -4,22 +4,15 @@
 
 import { toast } from 'sonner';
 
-// Configuration for WebRTC peer connections with enhanced server list
-const iceServers = {
+// Configuration for WebRTC peer connections
+const config: RTCConfiguration = {
   iceServers: [
     {
       urls: [
         'stun:stun1.l.google.com:19302',
-        'stun:stun2.l.google.com:19302',
-        'stun:stun3.l.google.com:19302',
-        'stun:stun4.l.google.com:19302',
-        'stun:stun.stunprotocol.org:3478',
-        'stun:stun.ekiga.net:3478',
-        'stun:stun.ideasip.com:3478',
-        'stun:stun.schlund.de:3478'
+        'stun:stun2.l.google.com:19302'
       ]
     },
-    // Free TURN servers (for testing only - replace with your own TURN server in production)
     {
       urls: [
         'turn:openrelay.metered.ca:80',
@@ -28,21 +21,12 @@ const iceServers = {
       ],
       username: 'openrelayproject',
       credential: 'openrelayproject'
-    },
-    {
-      urls: [
-        'turn:numb.viagenie.ca',
-        'turn:numb.viagenie.ca:443?transport=tcp'
-      ],
-      username: 'webrtc@live.com',
-      credential: 'muazkh'
     }
   ],
   iceCandidatePoolSize: 10,
   bundlePolicy: 'max-bundle',
   rtcpMuxPolicy: 'require',
-  iceTransportPolicy: 'all',
-  sdpSemantics: 'unified-plan'
+  iceTransportPolicy: 'all'
 };
 
 /**
@@ -51,22 +35,6 @@ const iceServers = {
  * @returns RTCPeerConnection with optimized settings
  */
 export function createPeerConnection(): RTCPeerConnection {
-  const config: RTCConfiguration = {
-    iceServers: [
-      {
-        urls: [
-          'stun:stun1.l.google.com:19302',
-          'stun:stun2.l.google.com:19302'
-        ]
-      }
-    ],
-    iceCandidatePoolSize: 10,
-    bundlePolicy: 'max-bundle' as RTCBundlePolicy,
-    rtcpMuxPolicy: 'require' as RTCRtcpMuxPolicy,
-    iceTransportPolicy: 'all' as RTCIceTransportPolicy,
-    sdpSemantics: 'unified-plan'
-  };
-
   const pc = new RTCPeerConnection(config);
   
   // Log connection state changes
@@ -207,7 +175,7 @@ export function createPeerConnection(): RTCPeerConnection {
 export async function createWebSocketConnection(token?: string): Promise<WebSocket> {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.hostname;
-  const port = '5000'; // Use fixed port 5000 for WebSocket connection
+  const port = '5000';
   const wsUrl = `${protocol}//${host}:${port}/ws${token ? `?token=${token}` : ''}`;
 
   console.log('Creating WebSocket connection to:', wsUrl);
@@ -306,7 +274,7 @@ export function addMediaStreamToPeerConnection(
 
     // Set content hint for video tracks to maintain quality
     if (track.kind === 'video') {
-      (track as VideoTrack).contentHint = 'detail';
+      track.contentHint = 'detail';
     }
 
     peerConnection.addTrack(track, stream);

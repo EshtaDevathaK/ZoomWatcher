@@ -1,26 +1,21 @@
-import React from 'react';
-
-interface LogoProps {
-  className?: string;
-}
-
-export function Logo({ className = "" }: LogoProps) {
+const Logo = () => {
   return (
-    <svg
-      className={className}
-      viewBox="0 0 100 100"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <circle cx="50" cy="50" r="45" fill="#3B82F6" />
-      <circle cx="50" cy="50" r="35" fill="#1E40AF" />
-      <circle cx="50" cy="50" r="25" fill="#172554" />
-      <rect x="35" y="35" width="30" height="30" rx="5" fill="white" />
-      <circle cx="50" cy="50" r="8" fill="#3B82F6" />
-      <circle cx="33" cy="33" r="5" fill="#10B981" />
-      <circle cx="67" cy="33" r="5" fill="#10B981" />
-      <circle cx="33" cy="67" r="5" fill="#10B981" />
-      <circle cx="67" cy="67" r="5" fill="#10B981" />
-    </svg>
+    <div className="flex items-center gap-2">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="h-6 w-6"
+      >
+        <path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3" />
+      </svg>
+      <span className="font-bold">ZoomWatcher</span>
+    </div>
   );
-}
+};
+
+export default Logo;
