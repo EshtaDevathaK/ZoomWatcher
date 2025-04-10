@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { Card } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useSettings } from '@/hooks/use-settings';
 import { toast } from 'sonner';
 import { apiRequest } from '@/lib/queryClient';
@@ -35,7 +35,7 @@ interface UserSettings {
   allNotificationsDisabled: boolean;
 }
 
-export function DashboardPage() {
+export default function DashboardPage() {
   const { user } = useAuth();
   const { settings: userSettings } = useSettings();
   const [meetingStats, setMeetingStats] = useState<MeetingStats | null>(null);
@@ -106,48 +106,43 @@ export function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{meetingStats?.totalMeetings}</div>
-            <p className="text-xs text-muted-foreground">
-              meetings attended
-            </p>
+            <p className="text-xs text-muted-foreground">meetings attended</p>
           </CardContent>
         </Card>
+
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Duration</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {Math.round(meetingStats?.totalDuration / 60)} min
+              {Math.round(meetingStats?.totalDuration || 0 / 60)} min
             </div>
-            <p className="text-xs text-muted-foreground">
-              total time in meetings
-            </p>
+            <p className="text-xs text-muted-foreground">total time in meetings</p>
           </CardContent>
         </Card>
+
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Average Duration</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {Math.round(meetingStats?.averageDuration / 60)} min
+              {Math.round(meetingStats?.averageDuration || 0 / 60)} min
             </div>
-            <p className="text-xs text-muted-foreground">
-              per meeting
-            </p>
+            <p className="text-xs text-muted-foreground">per meeting</p>
           </CardContent>
         </Card>
+
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Average Participants</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {Math.round(meetingStats?.averageParticipants)}
+              {Math.round(meetingStats?.averageParticipants || 0)}
             </div>
-            <p className="text-xs text-muted-foreground">
-              per meeting
-            </p>
+            <p className="text-xs text-muted-foreground">per meeting</p>
           </CardContent>
         </Card>
       </div>
@@ -183,6 +178,7 @@ export function DashboardPage() {
             </ResponsiveContainer>
           </CardContent>
         </Card>
+
         <Card className="col-span-3">
           <CardHeader>
             <CardTitle>Calendar</CardTitle>
