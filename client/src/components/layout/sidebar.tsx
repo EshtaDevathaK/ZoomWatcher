@@ -55,43 +55,35 @@ export function Sidebar() {
           </div>
           <ul className="space-y-2">
             <li>
-              <Link href="/">
-                <a className={`flex items-center p-2 rounded-md ${
-                  location === "/" ? "bg-gray-700" : "hover:bg-gray-700"
-                }`}>
-                  <Home className="w-5 h-5 mr-3" />
-                  Dashboard
-                </a>
+              <Link href="/" className={`flex items-center p-2 rounded-md ${
+                location === "/" ? "bg-gray-700" : "hover:bg-gray-700"
+              }`}>
+                <Home className="w-5 h-5 mr-3" />
+                Dashboard
               </Link>
             </li>
             <li>
-              <Link href="/meetings">
-                <a className={`flex items-center p-2 rounded-md ${
-                  location === "/meetings" ? "bg-gray-700" : "hover:bg-gray-700"
-                }`}>
-                  <Users className="w-5 h-5 mr-3" />
-                  Meetings
-                </a>
+              <Link href="/meetings" className={`flex items-center p-2 rounded-md ${
+                location === "/meetings" ? "bg-gray-700" : "hover:bg-gray-700"
+              }`}>
+                <Users className="w-5 h-5 mr-3" />
+                Meetings
               </Link>
             </li>
             <li>
-              <Link href="/history">
-                <a className={`flex items-center p-2 rounded-md ${
-                  location === "/history" ? "bg-gray-700" : "hover:bg-gray-700"
-                }`}>
-                  <Clock className="w-5 h-5 mr-3" />
-                  History
-                </a>
+              <Link href="/history" className={`flex items-center p-2 rounded-md ${
+                location === "/history" ? "bg-gray-700" : "hover:bg-gray-700"
+              }`}>
+                <Clock className="w-5 h-5 mr-3" />
+                History
               </Link>
             </li>
             <li>
-              <Link href="/settings">
-                <a className={`flex items-center p-2 rounded-md ${
-                  location === "/settings" ? "bg-gray-700" : "hover:bg-gray-700"
-                }`}>
-                  <Settings className="w-5 h-5 mr-3" />
-                  Settings
-                </a>
+              <Link href="/settings" className={`flex items-center p-2 rounded-md ${
+                location === "/settings" ? "bg-gray-700" : "hover:bg-gray-700"
+              }`}>
+                <Settings className="w-5 h-5 mr-3" />
+                Settings
               </Link>
             </li>
           </ul>

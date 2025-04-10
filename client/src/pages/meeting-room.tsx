@@ -731,149 +731,33 @@ export default function MeetingRoom() {
   }, []);
   
   const handleParticipantStreamAdded = useCallback((userId: number, stream: MediaStream) => {
-    console.log(`Stream added for participant: ${userId}`);
-    console.log(`Stream has ${stream.getAudioTracks().length} audio tracks and ${stream.getVideoTracks().length} video tracks`);
+    console.log(`Setting up video for participant ${userId}`);
     
-    // For all audio tracks, ensure they're enabled by default
-    stream.getAudioTracks().forEach((track, index) => {
-      console.log(`Remote audio track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
-      track.enabled = true;
-    });
-    
-    // For all video tracks, ensure they're enabled and log their settings
-    stream.getVideoTracks().forEach((track, index) => {
-      console.log(`Remote video track ${index}: enabled=${track.enabled}, readyState=${track.readyState}`);
-      console.log(`Remote video track ${index} settings:`, track.getSettings());
-      track.enabled = true;
-    });
-    
-    setRemoteStreams(prev => {
-      const newStreams = new Map(prev);
-      newStreams.set(userId, stream);
-      return newStreams;
-    });
-    
-    setWebrtcParticipants(prev => 
-      prev.map(p => p.userId === userId ? { ...p, stream } : p)
-    );
-    
-    // We don't need special audio handling here since we're using AudioContainer components
-    // and remoteStreams has already been updated above
-    // We don't need special audio handling here since we're using AudioContainer components
-    // and remoteStreams has already been updated above
-    // We don't need special audio handling here since we're using AudioContainer components
-    // and remoteStreams has already been updated above
-    // We don't need special audio handling here since we're using AudioContainer components
-    // and remoteStreams has already been updated above
-    // We don't need special audio handling here since we're using AudioContainer components
-    // and remoteStreams has already been updated above
-    // We don't need special audio handling here since we're using AudioContainer components
-    // and remoteStreams has already been updated above
-    // We don't need special audio handling here since we're using AudioContainer components
-    // and remoteStreams has already been updated above
-    // We don't need special audio handling here since we're using AudioContainer components
-    // and remoteStreams has already been updated above
-    // We don't need special audio handling here since we're using AudioContainer components
-    // and remoteStreams has already been updated above
-    // We don't need special audio handling here since we're using AudioContainer components
-    // and remoteStreams has already been updated above
-    // We don't need special audio handling here since we're using AudioContainer components
-    // and remoteStreams has already been updated above
-    // We don't need special audio handling here since we're using AudioContainer components
-    // and remoteStreams has already been updated above
-    // We don't need special audio handling here since we're using AudioContainer components
-    // and remoteStreams has already been updated above
-    // We don't need special audio handling here since we're using AudioContainer components
-    // and remoteStreams has already been updated above
-        // Set critical video properties
-        videoElement.muted = true; // Mute the video element since we handle audio separately
-        videoElement.autoplay = true;
-        videoElement.playsInline = true;
-        videoElement.style.display = "block";
-        videoElement.style.zIndex = "5";
-        videoElement.style.position = "relative";
-        videoElement.style.backgroundColor = "#000000";
-        
-        // For better performance, create a video-only stream when possible
-        if (stream.getVideoTracks().length > 0) {
-          console.log(`Creating video-only stream for participant ${userId}`);
-          const videoOnlyStream = new MediaStream();
-          stream.getVideoTracks().forEach(track => {
-            console.log(`Adding video track to dedicated video stream: ${track.id}`);
-            videoOnlyStream.addTrack(track);
-          });
-          videoElement.srcObject = videoOnlyStream;
-        } else {
-          // Fallback to using the full stream
-          console.log(`Using full stream for participant ${userId} video as no dedicated video tracks found`);
-          videoElement.srcObject = stream;
-        }
-        
-        // Using a timeout to help with browser quirks
-        setTimeout(() => {
-          if (videoElement) {
-            videoElement.play()
-              .then(() => console.log(`Successfully playing remote video for participant ${userId} after timeout`))
-              .catch(delayedError => {
-                console.error(`Error playing remote video for user ${userId} after timeout:`, delayedError);
-              });
-          }
-        }, 100);
-        
-        // Try to play immediately too
-        videoElement.play()
-          .then(() => console.log(`Successfully playing remote video for participant ${userId}`))
-          .catch(error => {
-            console.error(`Error playing remote video for user ${userId}:`, error);
-            
-            // Show a toast to prompt user interaction
-            toast({
-              title: "Video Playback",
-              description: "Please click on participant videos to see them.",
-            });
-            
-            // Add a visual indicator that clicking is needed
-            const parent = videoElement.parentElement;
-            if (parent) {
-              const clickPrompt = document.createElement('div');
-              clickPrompt.innerText = "Click to see video";
-              clickPrompt.style.position = "absolute";
-              clickPrompt.style.top = "50%";
-              clickPrompt.style.left = "50%";
-              clickPrompt.style.transform = "translate(-50%, -50%)";
-              clickPrompt.style.color = "white";
-              clickPrompt.style.backgroundColor = "rgba(0,0,0,0.7)";
-              clickPrompt.style.padding = "8px 12px";
-              clickPrompt.style.borderRadius = "4px";
-              clickPrompt.style.zIndex = "10";
-              parent.appendChild(clickPrompt);
-              
-              // Add a click handler to play on user interaction and remove the prompt
-              parent.onclick = () => {
-                if (videoElement) {
-                  videoElement.play()
-                    .then(() => {
-                      console.log(`Successfully playing remote video after click for participant ${userId}`);
-                      if (clickPrompt.parentNode) {
-                        clickPrompt.parentNode.removeChild(clickPrompt);
-                      }
-                    })
-                    .catch(err => console.error(`Still failed to play after click:`, err));
-                }
-              };
-            }
-          });
-      } else {
-        console.warn(`No video element found for participant ${userId}, will retry in 1 second`);
-        // Retry after a delay to catch elements that might be created later
-        setTimeout(attachStreamToVideo, 1000);
+    // Create or get video element
+    let videoElement = document.getElementById(`video-${userId}`) as HTMLVideoElement;
+    if (!videoElement) {
+      videoElement = document.createElement('video');
+      videoElement.id = `video-${userId}`;
+      videoElement.autoplay = true;
+      videoElement.playsInline = true;
+      videoElement.muted = userId === user?.id; // Mute only local video
+      
+      // Add to video container
+      const container = document.getElementById('video-container');
+      if (container) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'relative w-full h-full';
+        wrapper.appendChild(videoElement);
+        container.appendChild(wrapper);
       }
-    };
-    
-    // Start the stream attachment process
-    attachStreamToVideo();
-    
-  }, [toast]);
+    }
+
+    // Set stream and play
+    videoElement.srcObject = stream;
+    videoElement.play().catch(err => {
+      console.error(`Error playing video for participant ${userId}:`, err);
+    });
+  }, [user?.id]);
   
   const handleMeetingEnded = useCallback(() => {
     toast({

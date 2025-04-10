@@ -33,6 +33,11 @@ export default function AuthPage() {
   const [, navigate] = useLocation();
   const [showSignUp, setShowSignUp] = useState(false);
 
+  // Clear any stored credentials when component mounts
+  useEffect(() => {
+    localStorage.removeItem('rememberedUser');
+  }, []);
+
   // Redirect to dashboard if already logged in
   useEffect(() => {
     if (user) {
@@ -69,6 +74,12 @@ export default function AuthPage() {
         password: data.password,
       });
       if (result) {
+        // Only save credentials if rememberMe is checked and login is successful
+        if (data.rememberMe) {
+          localStorage.setItem('rememberedUser', data.username);
+        } else {
+          localStorage.removeItem('rememberedUser');
+        }
         // Force a hard navigation to ensure state is reset properly
         window.location.href = "/";
       }
@@ -118,7 +129,11 @@ export default function AuthPage() {
                           {...field} 
                           placeholder="Enter your username" 
                           type="text"
-                          autoComplete="username"
+                          autoComplete="new-password"
+                          autoCapitalize="off"
+                          autoCorrect="off"
+                          spellCheck="false"
+                          data-form-type="other"
                           disabled={loginMutation.isPending}
                         />
                       </FormControl>
@@ -138,7 +153,8 @@ export default function AuthPage() {
                           {...field} 
                           placeholder="Enter your password" 
                           type="password"
-                          autoComplete="current-password"
+                          autoComplete="new-password"
+                          data-form-type="other"
                           disabled={loginMutation.isPending}
                         />
                       </FormControl>

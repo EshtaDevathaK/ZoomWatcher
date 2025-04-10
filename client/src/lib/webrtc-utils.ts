@@ -3,41 +3,41 @@
  */
 
 // Configuration for WebRTC peer connections with enhanced server list
-const iceServers: RTCConfiguration = {
+const iceServers = {
   iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
-    { urls: 'stun:stun.ekiga.net' },
-    { urls: 'stun:stun.ideasip.com' },
-    { urls: 'stun:stun.schlund.de' },
-    // Adding fallback STUN servers to increase connection reliability
-    { urls: 'stun:stun.stunprotocol.org:3478' },
-    { urls: 'stun:stun.voiparound.com' },
-    { urls: 'stun:stun.voipbuster.com' },
-    { urls: 'stun:stun.webrtc.org:3478' },
-    // Add a free TURN server to handle more difficult NAT scenarios
     {
-      urls: 'turn:openrelay.metered.ca:80',
+      urls: [
+        'stun:stun1.l.google.com:19302',
+        'stun:stun2.l.google.com:19302',
+        'stun:stun3.l.google.com:19302',
+        'stun:stun4.l.google.com:19302',
+        'stun:stun.stunprotocol.org:3478'
+      ]
+    },
+    // Free TURN servers (for testing only - replace with your own TURN server in production)
+    {
+      urls: [
+        'turn:openrelay.metered.ca:80',
+        'turn:openrelay.metered.ca:443',
+        'turn:openrelay.metered.ca:443?transport=tcp'
+      ],
       username: 'openrelayproject',
       credential: 'openrelayproject'
     },
     {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-      username: 'openrelayproject',
-      credential: 'openrelayproject'
+      urls: [
+        'turn:numb.viagenie.ca',
+        'turn:numb.viagenie.ca:443?transport=tcp'
+      ],
+      username: 'webrtc@live.com',
+      credential: 'muazkh'
     }
   ],
   iceCandidatePoolSize: 10,
-  bundlePolicy: 'max-bundle' as RTCBundlePolicy,
-  rtcpMuxPolicy: 'require' as RTCRtcpMuxPolicy
+  bundlePolicy: 'max-bundle',
+  rtcpMuxPolicy: 'require',
+  iceTransportPolicy: 'all',
+  sdpSemantics: 'unified-plan'
 };
 
 /**
@@ -48,31 +48,132 @@ const iceServers: RTCConfiguration = {
 export function createPeerConnection(): RTCPeerConnection {
   const pc = new RTCPeerConnection(iceServers);
   
+  // Log connection state changes
+  pc.onconnectionstatechange = () => {
+    console.log('Connection state:', pc.connectionState);
+    if (pc.connectionState === 'connected') {
+      console.log('Connection established successfully');
+    }
+  };
+
+  pc.oniceconnectionstatechange = () => {
+    console.log('ICE Connection state:', pc.iceConnectionState);
+    if (pc.iceConnectionState === 'connected') {
+      console.log('ICE Connection established successfully');
+    }
+  };
+
+  pc.onicegatheringstatechange = () => {
+    console.log('ICE Gathering state:', pc.iceGatheringState);
+  };
+
+  pc.onsignalingstatechange = () => {
+    console.log('Signaling state:', pc.signalingState);
+  };
+
+  // Handle incoming tracks
+  pc.ontrack = (event) => {
+    console.log('Received track:', {
+      kind: event.track.kind,
+      id: event.track.id,
+      enabled: event.track.enabled,
+      streamId: event.streams[0]?.id,
+      settings: event.track.getSettings()
+    });
+
+    // Ensure track is enabled and not muted
+    event.track.enabled = true;
+
+    // Monitor track state
+    event.track.onended = () => {
+      console.log(`Incoming track ${event.track.id} ended`);
+    };
+
+    event.track.onmute = () => {
+      console.log(`Incoming track ${event.track.id} muted`);
+      event.track.enabled = true; // Keep track enabled even when muted
+    };
+
+    event.track.onunmute = () => {
+      console.log(`Incoming track ${event.track.id} unmuted`);
+      event.track.enabled = true;
+    };
+
+    // Log track capabilities
+    const capabilities = event.track.getCapabilities();
+    console.log(`Track ${event.track.id} capabilities:`, capabilities);
+  };
+  
   // Add event listeners for connection monitoring
   pc.addEventListener('iceconnectionstatechange', () => {
     console.log(`ICE connection state changed: ${pc.iceConnectionState}`);
     
-    // Attempt to restart ICE if connection fails
-    if (pc.iceConnectionState === 'failed' || pc.iceConnectionState === 'disconnected') {
-      console.warn('ICE connection failed or disconnected, attempting to restart...');
+    // Handle failed connections more gracefully
+    if (pc.iceConnectionState === 'failed') {
+      console.warn('ICE connection failed, attempting to restart...');
       try {
         pc.restartIce();
       } catch (err) {
         console.error('Failed to restart ICE connection:', err);
       }
+    } else if (pc.iceConnectionState === 'disconnected') {
+      console.warn('ICE connection disconnected, waiting for reconnection...');
+      // Give some time for natural recovery before forcing a restart
+      setTimeout(() => {
+        if (pc.iceConnectionState === 'disconnected') {
+          console.warn('Connection still disconnected, forcing ICE restart...');
+          try {
+            pc.restartIce();
+          } catch (err) {
+            console.error('Failed to restart ICE connection:', err);
+          }
+        }
+      }, 5000);
     }
   });
   
   pc.addEventListener('connectionstatechange', () => {
     console.log(`Connection state changed: ${pc.connectionState}`);
+    
+    // Handle failed connections
+    if (pc.connectionState === 'failed') {
+      console.warn('Connection failed, attempting to restart connection...');
+      try {
+        pc.restartIce();
+      } catch (err) {
+        console.error('Failed to restart connection:', err);
+        pc.close();
+      }
+    }
   });
   
   pc.addEventListener('icecandidateerror', (event) => {
     console.warn('ICE candidate error:', event);
   });
   
-  pc.addEventListener('negotiationneeded', () => {
+  let negotiationInProgress = false;
+  pc.addEventListener('negotiationneeded', async () => {
     console.log('Negotiation needed event triggered');
+    
+    // Prevent concurrent negotiations
+    if (negotiationInProgress) {
+      console.log('Negotiation already in progress, skipping...');
+      return;
+    }
+    
+    try {
+      negotiationInProgress = true;
+      const offer = await pc.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true
+      });
+      await pc.setLocalDescription(offer);
+      console.log('Local description set after negotiationneeded event');
+    } catch (err) {
+      console.error('Error during negotiation:', err);
+    } finally {
+      negotiationInProgress = false;
+    }
   });
   
   return pc;
@@ -82,14 +183,57 @@ export function createPeerConnection(): RTCPeerConnection {
  * Create a WebSocket connection for signaling
  * @returns Promise that resolves to the WebSocket connection
  */
-export function createWebSocketConnection(): Promise<WebSocket> {
+export function createWebSocketConnection(token?: string): Promise<WebSocket> {
   return new Promise((resolve, reject) => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
-    
-    const socket = new WebSocket(wsUrl);
-    socket.onopen = () => resolve(socket);
-    socket.onerror = (error) => reject(error);
+    try {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.hostname;
+      const port = '5000'; // Explicitly set port to 5000
+      const wsUrl = `${protocol}//${host}:${port}/ws${token ? `?token=${token}` : ''}`;
+      
+      console.log('Creating WebSocket connection to:', wsUrl);
+      const socket = new WebSocket(wsUrl);
+      
+      let connectionTimeout: NodeJS.Timeout;
+
+      // Set a connection timeout
+      connectionTimeout = setTimeout(() => {
+        console.error('WebSocket connection timeout');
+        socket.close();
+        reject(new Error('WebSocket connection timeout'));
+      }, 5000);
+      
+      socket.onopen = () => {
+        console.log('WebSocket connection established successfully');
+        clearTimeout(connectionTimeout);
+        
+        // Add heartbeat to keep connection alive
+        const heartbeat = setInterval(() => {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'ping' }));
+          } else {
+            clearInterval(heartbeat);
+          }
+        }, 30000);
+
+        // Clean up heartbeat on close
+        socket.onclose = () => {
+          clearInterval(heartbeat);
+          console.log('WebSocket connection closed');
+        };
+
+        resolve(socket);
+      };
+      
+      socket.onerror = (error) => {
+        console.error('WebSocket connection error:', error);
+        clearTimeout(connectionTimeout);
+        reject(error);
+      };
+    } catch (error) {
+      console.error('Error creating WebSocket connection:', error);
+      reject(error);
+    }
   });
 }
 
@@ -126,182 +270,105 @@ export async function createAnswer(
  * @param stream The MediaStream to add
  */
 export function addMediaStreamToPeerConnection(peerConnection: RTCPeerConnection, stream: MediaStream): void {
-  // Remove all existing senders first to avoid stale tracks
-  const senders = peerConnection.getSenders();
-  senders.forEach(sender => {
-    if (sender.track) {
-      console.log(`Removing existing track: ${sender.track.kind}, ID: ${sender.track.id}`);
-      peerConnection.removeTrack(sender);
-    }
-  });
-  
-  // First check if stream is valid and has tracks
   if (!stream) {
     console.error("Cannot add null stream to peer connection");
     return;
   }
-  
-  const allTracks = stream.getTracks();
-  if (allTracks.length === 0) {
-    console.error("Stream has no tracks to add to peer connection");
-    return;
-  }
-  
-  console.log(`Stream has ${allTracks.length} total tracks to process`);
-  
-  // First ensure all tracks are properly initialized and enabled by default
-  // The actual muting/unmuting will be controlled via the 'enabled' property later
-  stream.getTracks().forEach(track => {
-    // Make sure the track is not stopped
-    if (track.readyState === 'ended') {
-      console.warn(`Track ${track.id} (${track.kind}) is in 'ended' state and may not work`);
-    }
-    
-    // The enabled property controls whether the track is active
-    if (!track.enabled) {
-      console.log(`Enabling initially disabled ${track.kind} track before adding to peer connection`);
-      track.enabled = true;
-    }
+
+  console.log('Adding media stream to peer connection:', {
+    audioTracks: stream.getAudioTracks().length,
+    videoTracks: stream.getVideoTracks().length,
+    streamId: stream.id
   });
-  
-  // Process audio tracks specifically - ENHANCED FOR RELIABLE AUDIO
-  const audioTracks = stream.getAudioTracks();
-  console.log(`Number of audio tracks to add: ${audioTracks.length}`);
-  
-  if (audioTracks.length === 0) {
-    console.warn("No audio tracks found in the stream - participants may not hear audio");
-    // Try to request audio track if none found
+
+  // Remove all existing senders to avoid duplicates
+  const senders = peerConnection.getSenders();
+  senders.forEach(sender => {
     try {
-      navigator.mediaDevices.getUserMedia({ audio: true })
-        .then(audioStream => {
-          const newAudioTrack = audioStream.getAudioTracks()[0];
-          if (newAudioTrack) {
-            console.log("Successfully acquired audio track, adding to stream");
-            stream.addTrack(newAudioTrack);
-            
-            // Now add the new track to peer connection directly
-            try {
-              peerConnection.addTrack(newAudioTrack, stream);
-              console.log("Successfully added newly acquired audio track to peer connection");
-            } catch (err) {
-              console.error("Error adding newly acquired audio track to peer connection:", err);
-            }
-          }
-        })
-        .catch(err => console.error("Could not get audio track:", err));
+      if (sender.track) {
+        console.log(`Removing existing ${sender.track.kind} track:`, sender.track.id);
+        sender.track.stop();
+      }
+      peerConnection.removeTrack(sender);
     } catch (err) {
-      console.error("Error trying to get audio track:", err);
-    }
-  } else {
-    audioTracks.forEach((track, index) => {
-      console.log(`ENHANCED AUDIO: Audio track ${index}: enabled=${track.enabled}, muted=${track.muted}, readyState=${track.readyState}`);
-      
-      // Force audio track to be enabled - CRITICAL for audio to work
-      track.enabled = true;
-      
-      // Apply audio constraints for better quality
-      try {
-        track.applyConstraints({
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        }).catch(err => console.log("Could not apply audio constraints:", err));
-      } catch (e) {
-        console.log("Error applying audio constraints:", e);
-      }
-      
-      // Log detailed audio track capabilities for debugging
-      console.log(`Audio track ${index} settings:`, track.getSettings());
-    });
-  }
-  
-  // Process video tracks specifically
-  const videoTracks = stream.getVideoTracks();
-  console.log(`Number of video tracks to add: ${videoTracks.length}`);
-  
-  if (videoTracks.length === 0) {
-    console.warn("No video tracks found in the stream - participants may not see video");
-  } else {
-    videoTracks.forEach((track, index) => {
-      const settings = track.getSettings();
-      console.log(`Video track ${index} settings:`, settings);
-      
-      // Ensure video track is properly initialized and enabled
-      track.enabled = true;
-      
-      // Force constraints if needed for better video quality and compatibility
-      try {
-        // If dimensions are missing or very low, try to set reasonable defaults
-        if (!settings.width || !settings.height || settings.width < 100 || settings.height < 100) {
-          console.log(`Detected problematic video dimensions, attempting to fix...`);
-          track.applyConstraints({
-            width: { ideal: 640 },
-            height: { ideal: 480 },
-            frameRate: { ideal: 30 }
-          }).catch(err => console.error("Could not apply video constraints:", err));
-        }
-        // If frame rate is too low or not set, try to improve it
-        else if (!settings.frameRate || settings.frameRate < 15) {
-          console.log(`Detected low frame rate (${settings.frameRate}), attempting to improve...`);
-          track.applyConstraints({
-            frameRate: { ideal: 30, min: 15 }
-          }).catch(err => console.error("Could not apply frame rate constraint:", err));
-        }
-      } catch (e) {
-        console.log("Error applying video constraints:", e);
-      }
-    });
-  }
-  
-  // Now add all tracks from the stream to the peer connection
-  stream.getTracks().forEach(track => {
-    console.log(`Adding track to peer connection: ${track.kind}, ID: ${track.id}, enabled: ${track.enabled}, readyState: ${track.readyState}`);
-    
-    try {
-      // This is where we actually add the track to the connection for transmission
-      peerConnection.addTrack(track, stream);
-    } catch (e) {
-      console.error(`Failed to add ${track.kind} track to peer connection:`, e);
+      console.warn('Error removing track:', err);
     }
   });
-  
-  // Set up quality parameters to help with performance
-  try {
-    const transceivers = peerConnection.getTransceivers();
-    transceivers.forEach(transceiver => {
-      if (transceiver.sender && transceiver.sender.track) {
-        // Set different encoding parameters based on track type
-        const trackType = transceiver.sender.track.kind;
-        
-        // Get current parameters (avoid mutation)
-        const params = transceiver.sender.getParameters();
-        
-        if (trackType === 'audio') {
-          // For audio, we just set degradation preference to maintain framerate
-          if (params.degradationPreference !== 'maintain-framerate') {
-            params.degradationPreference = 'maintain-framerate';
-            try {
-              transceiver.sender.setParameters(params);
-            } catch (err) {
-              console.log("Could not set audio parameters:", err);
-            }
-          }
-        } else if (trackType === 'video') {
-          // For video, we set degradation to balanced
-          if (params.degradationPreference !== 'balanced') {
-            params.degradationPreference = 'balanced';
-            try {
-              transceiver.sender.setParameters(params);
-            } catch (err) {
-              console.log("Could not set video parameters:", err);
-            }
-          }
+
+  // Add all tracks from the stream
+  stream.getTracks().forEach(track => {
+    try {
+      // Ensure track is enabled and not muted
+      track.enabled = true;
+      track.muted = false;
+      
+      console.log(`Adding ${track.kind} track to peer connection:`, {
+        id: track.id,
+        enabled: track.enabled,
+        muted: track.muted,
+        readyState: track.readyState,
+        settings: track.getSettings()
+      });
+
+      // Add the track to the peer connection with the stream
+      const sender = peerConnection.addTrack(track, stream);
+
+      // Set parameters for video tracks
+      if (track.kind === 'video' && sender.setParameters) {
+        const params = sender.getParameters();
+        if (!params.encodings) {
+          params.encodings = [{}];
         }
+        sender.setParameters({
+          ...params,
+          degradationPreference: 'maintain-framerate',
+          encodings: [
+            {
+              maxBitrate: 1000000, // 1 Mbps
+              maxFramerate: 30,
+              scaleResolutionDownBy: 1.0
+            }
+          ]
+        }).catch(err => console.warn('Error setting video parameters:', err));
       }
-    });
-  } catch (e) {
-    console.log("Error setting quality parameters:", e);
-  }
+
+      // Monitor track status
+      track.onended = () => {
+        console.log(`Track ${track.id} ended, removing from peer connection`);
+        try {
+          const sender = peerConnection.getSenders().find(s => s.track === track);
+          if (sender) {
+            peerConnection.removeTrack(sender);
+          }
+        } catch (err) {
+          console.warn('Error removing ended track:', err);
+        }
+      };
+
+      // Add track event listeners
+      track.onmute = () => {
+        console.log(`Track ${track.id} muted`);
+        track.enabled = false;
+      };
+
+      track.onunmute = () => {
+        console.log(`Track ${track.id} unmuted`);
+        track.enabled = true;
+      };
+
+    } catch (err) {
+      console.error(`Failed to add ${track.kind} track to peer connection:`, err);
+    }
+  });
+
+  // Log final state
+  console.log('Current tracks in peer connection:', {
+    senders: peerConnection.getSenders().length,
+    audioTracks: stream.getAudioTracks().length,
+    videoTracks: stream.getVideoTracks().length,
+    connectionState: peerConnection.connectionState,
+    iceConnectionState: peerConnection.iceConnectionState
+  });
 }
 
 /**
