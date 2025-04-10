@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/hooks/use-auth';
-import { useToast } from '@/hooks/use-toast';
+import { Card } from '@/components/ui/card';
+import { useSettings } from '@/hooks/use-settings';
+import { toast } from 'sonner';
 import { apiRequest } from '@/lib/queryClient';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Calendar } from '@/components/ui/calendar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -34,17 +35,11 @@ interface UserSettings {
   allNotificationsDisabled: boolean;
 }
 
-export default function DashboardPage() {
+export function DashboardPage() {
   const { user } = useAuth();
-  const { toast } = useToast();
+  const { settings: userSettings } = useSettings();
+  const [meetingStats, setMeetingStats] = useState<MeetingStats | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | undefined>(new Date());
-  const [stats, setStats] = useState<MeetingStats>({
-    totalMeetings: 0,
-    totalDuration: 0,
-    averageDuration: 0,
-    totalParticipants: 0,
-    averageParticipants: 0
-  });
   const [meetings, setMeetings] = useState<MeetingData[]>([]);
   const [settings, setSettings] = useState<UserSettings>({
     autoMuteEnabled: false,
@@ -69,7 +64,7 @@ export default function DashboardPage() {
 
         if (statsResponse.ok) {
           const statsData = await statsResponse.json();
-          setStats(statsData);
+          setMeetingStats(statsData);
         }
 
         if (meetingsResponse.ok) {
@@ -110,7 +105,7 @@ export default function DashboardPage() {
             <CardTitle className="text-sm font-medium">Total Meetings</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats.totalMeetings}</div>
+            <div className="text-2xl font-bold">{meetingStats?.totalMeetings}</div>
             <p className="text-xs text-muted-foreground">
               meetings attended
             </p>
@@ -122,7 +117,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {Math.round(stats.totalDuration / 60)} min
+              {Math.round(meetingStats?.totalDuration / 60)} min
             </div>
             <p className="text-xs text-muted-foreground">
               total time in meetings
@@ -135,7 +130,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {Math.round(stats.averageDuration / 60)} min
+              {Math.round(meetingStats?.averageDuration / 60)} min
             </div>
             <p className="text-xs text-muted-foreground">
               per meeting
@@ -148,7 +143,7 @@ export default function DashboardPage() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {Math.round(stats.averageParticipants)}
+              {Math.round(meetingStats?.averageParticipants)}
             </div>
             <p className="text-xs text-muted-foreground">
               per meeting

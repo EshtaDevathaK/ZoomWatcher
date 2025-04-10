@@ -5,7 +5,7 @@ import { ToastAction } from '@/components/ui/toast';
 export type AVStatus = 'checking' | 'ok' | 'warning' | 'error';
 
 interface AVIssue {
-  type: 'video' | 'audio' | 'connection';
+  type: 'audio' | 'video' | 'connection';
   severity: 'warning' | 'error';
   message: string;
   autoRecoverable: boolean;
@@ -31,6 +31,19 @@ export function AVIntegrityMonitor({
   const [issues, setIssues] = useState<AVIssue[]>([]);
   const recoveryAttemptsRef = useRef<Map<string, number>>(new Map());
   const checkIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Update issue creation
+  const createIssue = (
+    type: AVIssue['type'],
+    severity: AVIssue['severity'],
+    message: string,
+    autoRecoverable: boolean
+  ): AVIssue => ({
+    type,
+    severity,
+    message,
+    autoRecoverable
+  });
 
   // Check local stream integrity
   const checkLocalStream = () => {
@@ -253,6 +266,16 @@ export function AVIntegrityMonitor({
       }
     };
   }, [stream, remoteStreams, isHost, onIssueDetected, onStatusChange]);
+
+  // Use the issues and status in the component
+  useEffect(() => {
+    if (issues.length > 0) {
+      const criticalIssues = issues.filter(issue => issue.severity === 'error');
+      if (criticalIssues.length > 0) {
+        onStatusChange('error');
+      }
+    }
+  }, [issues, onStatusChange]);
 
   // This component doesn't render anything visible
   return null;

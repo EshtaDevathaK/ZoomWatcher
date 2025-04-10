@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, HTMLAttributes } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -6,7 +6,11 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Home, Users, Clock, Settings, LogOut, Menu } from "lucide-react";
 import Logo from "@/components/ui/logo";
 
-export function Sidebar() {
+interface SidebarProps extends HTMLAttributes<HTMLDivElement> {
+  // Add any additional props here
+}
+
+export function Sidebar({ className, ...props }: SidebarProps) {
   const { user, logoutMutation } = useAuth();
   const [location] = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -46,7 +50,7 @@ export function Sidebar() {
       <nav 
         className={`bg-gray-800 text-white fixed h-full w-64 z-50 left-0 top-0 transform ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        } md:translate-x-0 transition-transform duration-200 ease-in-out`}
+        } md:translate-x-0 transition-transform duration-200 ease-in-out ${className}`}
       >
         <div className="p-6">
           <div className="flex items-center mb-8">

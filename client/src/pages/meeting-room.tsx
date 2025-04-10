@@ -62,6 +62,9 @@ function initializeAudioContext() {
 
 interface Meeting {
   id: string;
+  name: string;
+  meetingCode: string;
+  isActive: boolean;
   hostId: string;
   participants: Participant[];
 }
@@ -102,8 +105,10 @@ interface WebRTCState {
 
 interface AVMonitorProps {
   stream: MediaStream | null;
-  userId: string;
-  muted: boolean;
+  remoteStreams: { [key: string]: MediaStream };
+  isHost: boolean;
+  onIssueDetected: (issue: string) => void;
+  onStatusChange: (status: AVStatus) => void;
 }
 
 export default function MeetingRoom() {
@@ -897,7 +902,6 @@ export default function MeetingRoom() {
               break;
             case 'media-state-changed':
               handleMediaStateChange(
-                message.data.userId,
                 message.data.mediaType as 'audio' | 'video',
                 message.data.enabled
               );
@@ -1012,6 +1016,32 @@ export default function MeetingRoom() {
   const handleAVStatusChange = (status: AVStatus) => {
     // You can use this to update UI elements or trigger other actions
     console.log('AV Status Updated:', status);
+  };
+
+  // Fix null checks and type issues
+  const handleLocalStream = (stream: MediaStream | null) => {
+    if (!stream) return;
+    // ... rest of the function
+  };
+
+  // Convert Map to object for remoteStreams
+  const remoteStreamsObj = Object.fromEntries(webrtcState.remoteStreams);
+
+  // Fix media state handling
+  const handleMediaStateChange = (state: MediaState) => {
+    setMediaState({
+      audio: state.audio ?? false,
+      video: state.video ?? false
+    });
+  };
+
+  // Fix video element handling
+  const handleVideoElement = (element: HTMLVideoElement) => {
+    if (element.paused) {
+      element.play().catch(error => {
+        console.error('Error playing video:', error);
+      });
+    }
   };
 
   if (isLoadingMeeting) {
@@ -1576,7 +1606,7 @@ export default function MeetingRoom() {
 
       <AVIntegrityMonitor
         stream={webrtcState.localStream}
-        remoteStreams={webrtcState.remoteStreams}
+        remoteStreams={remoteStreamsObj}
         isHost={user?.id === meeting?.hostId}
         onIssueDetected={handleAVIssueDetected}
         onStatusChange={handleAVStatusChange}

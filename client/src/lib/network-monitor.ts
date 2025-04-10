@@ -1,8 +1,10 @@
-export interface NetworkStats {
+interface NetworkStats {
   rtt: number;
   packetLoss: number;
   bandwidth: number;
-  quality: 'excellent' | 'good' | 'fair' | 'poor';
+  timestamp: number;
+  bytesReceived: number;
+  quality: 'good' | 'fair' | 'poor';
 }
 
 export interface NetworkMonitorOptions {
@@ -25,7 +27,14 @@ export class NetworkMonitor {
   private connection: RTCPeerConnection;
   private options: NetworkMonitorOptions;
   private monitorInterval: NodeJS.Timeout | null = null;
-  private lastStats: NetworkStats | null = null;
+  private lastStats: NetworkStats = {
+    rtt: 0,
+    packetLoss: 0,
+    bandwidth: 0,
+    timestamp: Date.now(),
+    bytesReceived: 0,
+    quality: 'good'
+  };
 
   constructor(connection: RTCPeerConnection, options: NetworkMonitorOptions = {}) {
     this.connection = connection;
@@ -75,8 +84,8 @@ export class NetworkMonitor {
           packetLoss = packetsReceived > 0 ? (packetsLost / packetsReceived) * 100 : 0;
           
           if (report.bytesReceived && report.timestamp) {
-            const timeDiff = report.timestamp - (this.lastStats?.timestamp || report.timestamp);
-            const bytesDiff = report.bytesReceived - (this.lastStats?.bytesReceived || 0);
+            const timeDiff = report.timestamp - (this.lastStats.timestamp || report.timestamp);
+            const bytesDiff = report.bytesReceived - (this.lastStats.bytesReceived || 0);
             bandwidth = (bytesDiff * 8) / (timeDiff / 1000); // bits per second
           }
         }
@@ -87,6 +96,8 @@ export class NetworkMonitor {
         rtt,
         packetLoss,
         bandwidth,
+        timestamp: Date.now(),
+        bytesReceived: 0, // Will be updated in next iteration
         quality
       };
 
@@ -96,7 +107,6 @@ export class NetworkMonitor {
 
       this.lastStats = {
         ...networkStats,
-        timestamp: Date.now(),
         bytesReceived: 0 // Will be updated in next iteration
       };
 
@@ -114,7 +124,7 @@ export class NetworkMonitor {
     return 'poor';
   }
 
-  getLastStats(): NetworkStats | null {
+  getLastStats(): NetworkStats {
     return this.lastStats;
   }
 } 
