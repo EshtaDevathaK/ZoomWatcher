@@ -6,7 +6,13 @@
     "outDir": "dist/server",
     "noEmit": false,
     "allowJs": true,
-    "checkJs": true
+    "checkJs": true,
+    "target": "ES2020",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true
   },
   "include": ["server/**/*"],
   "exclude": ["node_modules", "dist", "client"]
