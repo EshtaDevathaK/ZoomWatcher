@@ -19,6 +19,7 @@ import { AVStatusMonitor } from '../components/AVStatusMonitor';
 import '../styles/av-status.css';
 import { AVIntegrityMonitor } from '../components/AVIntegrityMonitor';
 import '../styles/av-integrity.css';
+import { AVStatus } from '../components/AVIntegrityMonitor';
 
 // Initialize audio context to ensure audio works consistently across browsers
 function initializeAudioContext() {
@@ -58,6 +59,11 @@ function initializeAudioContext() {
   }
 }
 
+interface WebRTCParticipant {
+  stream: MediaStream;
+  userId: string;
+}
+
 export default function MeetingRoom() {
   // Initialize audio context on component mount to ensure audio works
   useEffect(() => {
@@ -91,7 +97,7 @@ export default function MeetingRoom() {
   const [showParticipantsList, setShowParticipantsList] = useState(false);
   
   // WebRTC state
-  const [webrtcParticipants, setWebrtcParticipants] = useState<any[]>([]);
+  const [webrtcParticipants, setWebrtcParticipants] = useState<Record<string, MediaStream>>({});
   const [remoteStreams, setRemoteStreams] = useState<Map<number, MediaStream>>(new Map());
   
   // We no longer need a global audio container since we use AudioContainer components
@@ -686,7 +692,7 @@ export default function MeetingRoom() {
   // Effect to ensure remote videos play properly when streams are added
   useEffect(() => {
     // Loop through all webrtcParticipants with streams and make sure they play
-    webrtcParticipants.forEach(participant => {
+    Object.values(webrtcParticipants).forEach(participant => {
       if (participant.stream) {
         const videoElement = remoteVideoRefs.current.get(participant.userId);
         if (videoElement && videoElement.paused) {
@@ -714,19 +720,22 @@ export default function MeetingRoom() {
   // Handle remote participant streams with WebRTC
   const handleParticipantJoined = useCallback((participant: any) => {
     console.log(`Participant joined: ${participant.displayName} (${participant.userId})`);
-    setWebrtcParticipants(prev => [...prev, {
-      userId: participant.userId,
-      displayName: participant.displayName,
-      mediaState: {
-        audio: true,
-        video: true
+    setWebrtcParticipants(prev => ({
+      ...prev,
+      [participant.userId]: {
+        stream: participant.stream,
+        userId: participant.userId
       }
-    }]);
+    }));
   }, []);
   
-  const handleParticipantLeft = useCallback((userId: number) => {
+  const handleParticipantLeft = useCallback((userId: string) => {
     console.log(`Participant left: ${userId}`);
-    setWebrtcParticipants(prev => prev.filter(p => p.userId !== userId));
+    setWebrtcParticipants(prev => {
+      const newParticipants = { ...prev };
+      delete newParticipants[userId];
+      return newParticipants;
+    });
     setRemoteStreams(prev => {
       const newStreams = new Map(prev);
       newStreams.delete(userId);
@@ -734,9 +743,20 @@ export default function MeetingRoom() {
     });
   }, []);
   
-  const handleParticipantStreamAdded = (userId: string, stream: MediaStream) => {
-    console.log(`Setting up video for participant ${userId}`);
-    
+  const handleParticipantStreamAdded = useCallback((stream: MediaStream, userId: string) => {
+    console.log(`Setting up stream for participant ${userId}`, {
+      videoTracks: stream.getVideoTracks().length,
+      audioTracks: stream.getAudioTracks().length
+    });
+
+    // Create or get video container
+    let videoContainer = document.getElementById('video-container');
+    if (!videoContainer) {
+      videoContainer = document.createElement('div');
+      videoContainer.id = 'video-container';
+      document.body.appendChild(videoContainer);
+    }
+
     // Create or get video element for this participant
     let videoElement = document.getElementById(`video-${userId}`) as HTMLVideoElement;
     if (!videoElement) {
@@ -744,36 +764,54 @@ export default function MeetingRoom() {
       videoElement.id = `video-${userId}`;
       videoElement.autoplay = true;
       videoElement.playsInline = true;
-      videoElement.muted = userId === user?.id; // Mute local video
+      videoElement.muted = userId === user?.id?.toString(); // Mute only local video
       
-      // Add video element to container
-      const videoContainer = document.getElementById('video-container');
-      if (videoContainer) {
-        console.log(`Adding video element for participant ${userId} to container`);
-        videoContainer.appendChild(videoElement);
-      } else {
-        console.error('Video container not found');
-        return;
-      }
+      // Set video styles
+      videoElement.style.width = '320px';
+      videoElement.style.height = '240px';
+      videoElement.style.objectFit = 'cover';
+      videoElement.style.margin = '5px';
+      videoElement.style.backgroundColor = '#000';
+      
+      videoContainer.appendChild(videoElement);
     }
 
-    // Set stream and try to play
+    // Create separate audio element for this participant (if not local)
+    if (userId !== user?.id?.toString()) {
+      let audioElement = document.getElementById(`audio-${userId}`) as HTMLAudioElement;
+      if (!audioElement) {
+        audioElement = document.createElement('audio');
+        audioElement.id = `audio-${userId}`;
+        audioElement.autoplay = true;
+        audioElement.style.display = 'none';
+        document.body.appendChild(audioElement);
+      }
+      audioElement.srcObject = stream;
+    }
+
+    // Set stream to video element
     videoElement.srcObject = stream;
+
+    // Attempt to play the video
     videoElement.play().catch(error => {
       console.error(`Error playing video for participant ${userId}:`, error);
+      // Try playing again after a short delay
+      setTimeout(() => {
+        videoElement.play().catch(e => 
+          console.error(`Second attempt to play video for participant ${userId} failed:`, e)
+        );
+      }, 1000);
     });
 
     // Update participant media state
-    setWebrtcParticipants(prevState => ({
-      ...prevState,
-      [userId]: {
-        ...prevState[userId],
-        hasVideo: stream.getVideoTracks().length > 0,
-        hasAudio: stream.getAudioTracks().length > 0,
-        stream: stream
-      }
+    setWebrtcParticipants(prev => ({
+      ...prev,
+      [userId]: stream
     }));
-  };
+
+    // Log success
+    console.log(`Successfully set up media for participant ${userId}`);
+  }, [user?.id]);
   
   const handleMeetingEnded = useCallback(() => {
     toast({
@@ -784,25 +822,20 @@ export default function MeetingRoom() {
   }, [navigate, toast]);
   
   // Handle media state changes from remote participants
-  const handleMediaStateChanged = useCallback((userId: number, mediaType: 'audio' | 'video', enabled: boolean) => {
+  const handleMediaStateChanged = useCallback((userId: string, mediaType: 'audio' | 'video', enabled: boolean) => {
     console.log(`Media state changed for participant ${userId}: ${mediaType} ${enabled ? 'enabled' : 'disabled'}`);
     
     // Update participant's media state in our state
-    setWebrtcParticipants(prev => 
-      prev.map(p => {
-        if (p.userId === userId) {
-          const mediaState = p.mediaState || { audio: true, video: true };
-          return {
-            ...p,
-            mediaState: {
-              ...mediaState,
-              [mediaType]: enabled
-            }
-          };
+    setWebrtcParticipants(prev => ({
+      ...prev,
+      [userId]: {
+        ...prev[userId],
+        mediaState: {
+          ...prev[userId].mediaState,
+          [mediaType]: enabled
         }
-        return p;
-      })
-    );
+      }
+    }));
     
     // Also update the actual media tracks if we have a stream for this participant
     const stream = remoteStreams.get(userId);
@@ -880,8 +913,8 @@ export default function MeetingRoom() {
     }
 
     // Update participant state
-    setWebrtcParticipants(prevState => {
-      const newState = { ...prevState };
+    setWebrtcParticipants(prev => {
+      const newState = { ...prev };
       delete newState[userId];
       return newState;
     });
@@ -1259,7 +1292,7 @@ export default function MeetingRoom() {
                       .filter((p: any) => p.user && p.user.id !== user?.id)
                       .map((participant: any) => {
                         // Find matching WebRTC participant if available
-                        const webrtcParticipant = webrtcParticipants.find(wp => wp.userId === participant.user.id);
+                        const webrtcParticipant = webrtcParticipants[participant.user.id];
                         const hasStream = webrtcParticipant?.stream != null;
                         
                         // Set up ref callback for this participant's video
@@ -1481,7 +1514,7 @@ export default function MeetingRoom() {
       <AVIntegrityMonitor
         localStream={localStreamRef.current}
         remoteStreams={webrtcParticipants}
-        isHost={isHost}
+        isHost={true}
         onIssueDetected={handleAVIssueDetected}
         onStatusChange={handleAVStatusChange}
       />

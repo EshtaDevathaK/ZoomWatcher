@@ -10,7 +10,7 @@ import {
 } from '@/lib/webrtc-utils';
 
 interface Participant {
-  userId: number;
+  userId: string;
   username: string;
   displayName: string;
   stream?: MediaStream;
@@ -23,7 +23,7 @@ interface Participant {
 
 interface UseWebRTCProps {
   user: {
-    id: number;
+    id: string;
     username: string;
     displayName: string;
     token: string;
@@ -31,9 +31,9 @@ interface UseWebRTCProps {
   meetingId: number;
   localStream: MediaStream | null;
   onParticipantJoined?: (participant: Participant) => void;
-  onParticipantLeft?: (userId: number) => void;
-  onParticipantStreamAdded?: (userId: number, stream: MediaStream) => void;
-  onMediaStateChanged?: (userId: number, mediaType: 'audio' | 'video', enabled: boolean) => void;
+  onParticipantLeft?: (userId: string) => void;
+  onParticipantStreamAdded?: (userId: string, stream: MediaStream) => void;
+  onMediaStateChanged?: (userId: string, mediaType: 'audio' | 'video', enabled: boolean) => void;
   onMeetingEnded?: () => void;
 }
 
@@ -48,12 +48,12 @@ export function useWebRTC({
   onMeetingEnded
 }: UseWebRTCProps) {
   const [isConnected, setIsConnected] = useState(false);
-  const [participants, setParticipants] = useState<Map<number, Participant>>(new Map());
+  const [participants, setParticipants] = useState<Map<string, Participant>>(new Map());
   const socketRef = useRef<WebSocket | null>(null);
-  const peerConnectionsRef = useRef<Map<number, RTCPeerConnection>>(new Map());
-  const participantStreamsRef = useRef<Map<number, MediaStream>>(new Map());
+  const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
+  const participantStreamsRef = useRef<Map<string, MediaStream>>(new Map());
   // Store pending ICE candidates when remote description isn't set yet
-  const pendingIceCandidates = new Map<number, RTCIceCandidateInit[]>();
+  const pendingIceCandidates = new Map<string, RTCIceCandidateInit[]>();
   const { toast } = useToast();
 
   // Initialize WebSocket connection
@@ -168,7 +168,7 @@ export function useWebRTC({
           case 'participants-list':
             // Handle list of existing participants when joining a meeting
             const newParticipants = message.data.participants as Array<{
-              userId: number;
+              userId: string;
               username: string;
               displayName: string;
             }>;
@@ -291,7 +291,7 @@ export function useWebRTC({
 
   // Add a new participant to the meeting
   const addParticipant = useCallback(
-    (participant: { userId: number; username: string; displayName: string }) => {
+    (participant: { userId: string; username: string; displayName: string }) => {
       setParticipants(prev => {
         const newMap = new Map(prev);
         
@@ -321,7 +321,7 @@ export function useWebRTC({
 
   // Remove a participant from the meeting
   const removeParticipant = useCallback(
-    (userId: number) => {
+    (userId: string) => {
       // Close peer connection
       const peerConnection = peerConnectionsRef.current.get(userId);
       if (peerConnection) {
@@ -348,7 +348,7 @@ export function useWebRTC({
 
   // Initiate a peer connection with a participant
   const initiatePeerConnection = useCallback(
-    async (targetUserId: number) => {
+    async (targetUserId: string) => {
       if (!user || !localStream || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
         console.error(`Cannot initiate peer connection: missing requirements`, {
           hasUser: !!user,
