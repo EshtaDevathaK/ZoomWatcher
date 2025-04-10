@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { toast } from 'react-hot-toast';
+import { toast } from 'sonner';
 import * as faceapi from 'face-api.js';
 
 interface FaceDetectorProps {
@@ -66,9 +66,7 @@ export const FaceDetector: React.FC<FaceDetectorProps> = ({
             if (!noFaceTimeoutRef.current) {
               noFaceTimeoutRef.current = setTimeout(() => {
                 // Show warning after inactivity threshold
-                toast.warning('No face detected. Camera will turn off in 3 seconds...', {
-                  duration: confirmationDelay,
-                });
+                toast.warning('No face detected. Camera will turn off in 3 seconds...');
 
                 // Set confirmation timeout
                 confirmationTimeoutRef.current = setTimeout(() => {

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { toast } from 'react-hot-toast';
+import { toast } from 'sonner';
 
 interface VoiceAutoMuteProps {
   stream: MediaStream | null;
@@ -55,9 +55,7 @@ export const VoiceAutoMute: React.FC<VoiceAutoMuteProps> = ({
               const timeSinceLastActivity = Date.now() - lastAudioActivityRef.current;
               if (timeSinceLastActivity >= inactivityThreshold && !silenceTimeoutRef.current) {
                 // Show warning 10 seconds before auto-mute
-                toast.warning('No audio detected. Auto-muting in 10 seconds...', {
-                  duration: 10000,
-                });
+                toast.warning('No audio detected. Auto-muting in 10 seconds...');
 
                 silenceTimeoutRef.current = setTimeout(() => {
                   // Trigger vibration

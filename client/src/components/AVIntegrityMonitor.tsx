@@ -1,18 +1,44 @@
 import React, { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 
+export type AVStatus = {
+  audio: boolean;
+  video: boolean;
+};
+
 interface AVIntegrityMonitorProps {
   stream: MediaStream | null;
   userId?: string;
+  onStatusChange?: (status: AVStatus) => void;
 }
 
-export const AVIntegrityMonitor: React.FC<AVIntegrityMonitorProps> = ({ stream, userId }) => {
+export const AVIntegrityMonitor: React.FC<AVIntegrityMonitorProps> = ({ 
+  stream, 
+  userId,
+  onStatusChange 
+}) => {
   const lastWarningTime = useRef<Record<string, number>>({});
+  const currentStatus = useRef<AVStatus>({ audio: true, video: true });
 
   useEffect(() => {
     if (!stream) return;
 
     const checkTrackStates = () => {
+      const audioTracks = stream.getAudioTracks();
+      const videoTracks = stream.getVideoTracks();
+      
+      const newStatus: AVStatus = {
+        audio: audioTracks.some(track => track.enabled && track.readyState === 'live'),
+        video: videoTracks.some(track => track.enabled && track.readyState === 'live')
+      };
+
+      // Check if status changed
+      if (newStatus.audio !== currentStatus.current.audio || 
+          newStatus.video !== currentStatus.current.video) {
+        currentStatus.current = newStatus;
+        onStatusChange?.(newStatus);
+      }
+
       stream.getTracks().forEach(track => {
         const trackId = `${track.kind}-${userId || 'local'}`;
         const now = Date.now();
@@ -62,7 +88,7 @@ export const AVIntegrityMonitor: React.FC<AVIntegrityMonitorProps> = ({ stream, 
       clearInterval(interval);
       lastWarningTime.current = {};
     };
-  }, [stream, userId]);
+  }, [stream, userId, onStatusChange]);
 
   return null;
 }; 

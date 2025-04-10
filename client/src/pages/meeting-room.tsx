@@ -64,6 +64,24 @@ interface WebRTCParticipant {
   userId: string;
 }
 
+interface Participant {
+  userId: string;
+  username: string;
+  displayName: string;
+  stream?: MediaStream;
+  mediaState?: {
+    audio: boolean;
+    video: boolean;
+  };
+}
+
+interface User {
+  id: string;
+  username: string;
+  displayName: string;
+  token: string;
+}
+
 export default function MeetingRoom() {
   // Initialize audio context on component mount to ensure audio works
   useEffect(() => {
@@ -81,7 +99,7 @@ export default function MeetingRoom() {
       document.removeEventListener('click', handleUserInteraction);
     };
   }, []);
-  const { user } = useAuth();
+  const { user } = useAuth() as { user: User | null };
   const { toast } = useToast();
   const [, navigate] = useLocation();
   const params = useParams<{ id: string }>();
@@ -97,15 +115,11 @@ export default function MeetingRoom() {
   const [showParticipantsList, setShowParticipantsList] = useState(false);
   
   // WebRTC state
-  const [webrtcParticipants, setWebrtcParticipants] = useState<Record<string, MediaStream>>({});
-  const [remoteStreams, setRemoteStreams] = useState<Map<number, MediaStream>>(new Map());
-  
-  // We no longer need a global audio container since we use AudioContainer components
+  const [participants, setParticipants] = useState<Record<string, Participant>>({});
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   
   // References
   const localVideoRef = useRef<HTMLVideoElement>(null);
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const remoteVideoRefs = useRef<Map<number, HTMLVideoElement>>(new Map());
   const videoInitializationAttempted = useRef<boolean>(false);
   
   // Check camera and microphone permissions
@@ -197,7 +211,7 @@ export default function MeetingRoom() {
           console.log("Video tracks:", mediaStream.getVideoTracks().length);
           console.log("Audio tracks:", mediaStream.getAudioTracks().length);
           
-          localStreamRef.current = mediaStream;
+          setLocalStream(mediaStream);
           
           if (localVideoRef.current) {
             console.log("Setting video element source to media stream");
@@ -317,15 +331,15 @@ export default function MeetingRoom() {
     
     // Cleanup function
     return () => {
-      if (localStreamRef.current) {
-        localStreamRef.current.getTracks().forEach(track => track.stop());
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
       }
     };
   }, [toast, cameraEnabled, micEnabled]);
 
   // Extra video initialization to ensure video element is properly configured
   useEffect(() => {
-    if (localVideoRef.current && localStreamRef.current && !videoInitializationAttempted.current) {
+    if (localVideoRef.current && localStream && !videoInitializationAttempted.current) {
       videoInitializationAttempted.current = true;
       console.log("Running additional video initialization for local video element");
       
@@ -343,8 +357,8 @@ export default function MeetingRoom() {
       // Reset source object with a delay
       videoElement.srcObject = null;
       setTimeout(() => {
-        if (videoElement && localStreamRef.current) {
-          videoElement.srcObject = localStreamRef.current;
+        if (videoElement && localStream) {
+          videoElement.srcObject = localStream;
           videoElement.play()
             .then(() => console.log("Video playing after additional initialization"))
             .catch(err => {
@@ -358,7 +372,7 @@ export default function MeetingRoom() {
         }
       }, 500);
     }
-  }, [localVideoRef.current, localStreamRef.current, toast]);
+  }, [localVideoRef.current, localStream, toast]);
 
   // Fetch meeting data
   const { data: meeting, isLoading: isLoadingMeeting } = useQuery<Meeting>({
@@ -368,7 +382,7 @@ export default function MeetingRoom() {
   });
 
   // Fetch participants
-  const { data: participants, isLoading: isLoadingParticipants } = useQuery<Participant[]>({
+  const { data: participantsData, isLoading: isLoadingParticipants } = useQuery<Participant[]>({
     queryKey: [`/api/meetings/${meetingId}/participants`],
     enabled: !isNaN(meetingId) && !!meeting,
     refetchInterval: 5000, // Poll every 5 seconds to update participants
@@ -428,8 +442,8 @@ export default function MeetingRoom() {
   // Toggle microphone
   const toggleMicrophone = () => {
     console.log("Toggling microphone...");
-    if (localStreamRef.current) {
-      const audioTracks = localStreamRef.current.getAudioTracks();
+    if (localStream) {
+      const audioTracks = localStream.getAudioTracks();
       console.log(`Audio tracks found: ${audioTracks.length}`);
       
       if (audioTracks.length === 0) {
@@ -441,7 +455,7 @@ export default function MeetingRoom() {
             const newAudioTrack = audioStream.getAudioTracks()[0];
             if (newAudioTrack) {
               console.log("New audio track obtained, adding to stream");
-              localStreamRef.current?.addTrack(newAudioTrack);
+              localStream.addTrack(newAudioTrack);
               newAudioTrack.enabled = !micEnabled;
               setMicEnabled(!micEnabled);
             }
@@ -481,8 +495,8 @@ export default function MeetingRoom() {
   // Toggle camera
   const toggleCamera = () => {
     console.log("Toggling camera...");
-    if (localStreamRef.current) {
-      const videoTracks = localStreamRef.current.getVideoTracks();
+    if (localStream) {
+      const videoTracks = localStream.getVideoTracks();
       console.log(`Video tracks found: ${videoTracks.length}`);
       
       if (videoTracks.length === 0) {
@@ -494,7 +508,7 @@ export default function MeetingRoom() {
             const newVideoTrack = videoStream.getVideoTracks()[0];
             if (newVideoTrack) {
               console.log("New video track obtained, adding to stream");
-              localStreamRef.current?.addTrack(newVideoTrack);
+              localStream.addTrack(newVideoTrack);
               newVideoTrack.enabled = !cameraEnabled;
               setCameraEnabled(!cameraEnabled);
             }
@@ -536,21 +550,20 @@ export default function MeetingRoom() {
     try {
       if (screenShareEnabled) {
         // Stop screen sharing
-        if (localStreamRef.current) {
-          const videoTracks = localStreamRef.current.getVideoTracks();
+        if (localStream) {
+          const videoTracks = localStream.getVideoTracks();
           videoTracks.forEach(track => track.stop());
           
           // Get user video again
           const stream = await navigator.mediaDevices.getUserMedia({ video: true });
           const videoTrack = stream.getVideoTracks()[0];
           
-          if (localStreamRef.current) {
-            const audioTracks = localStreamRef.current.getAudioTracks();
-            localStreamRef.current.removeTrack(localStreamRef.current.getVideoTracks()[0]);
-            localStreamRef.current.addTrack(videoTrack);
+          if (localStream) {
+            localStream.removeTrack(localStream.getVideoTracks()[0]);
+            localStream.addTrack(videoTrack);
             
             if (localVideoRef.current) {
-              localVideoRef.current.srcObject = localStreamRef.current;
+              localVideoRef.current.srcObject = localStream;
             }
           }
         }
@@ -559,13 +572,12 @@ export default function MeetingRoom() {
         const displayStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
         const screenTrack = displayStream.getVideoTracks()[0];
         
-        if (localStreamRef.current) {
-          const audioTracks = localStreamRef.current.getAudioTracks();
-          localStreamRef.current.removeTrack(localStreamRef.current.getVideoTracks()[0]);
-          localStreamRef.current.addTrack(screenTrack);
+        if (localStream) {
+          localStream.removeTrack(localStream.getVideoTracks()[0]);
+          localStream.addTrack(screenTrack);
           
           if (localVideoRef.current) {
-            localVideoRef.current.srcObject = localStreamRef.current;
+            localVideoRef.current.srcObject = localStream;
           }
           
           // Listen for the end of screen sharing
@@ -576,12 +588,12 @@ export default function MeetingRoom() {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true });
             const videoTrack = stream.getVideoTracks()[0];
             
-            if (localStreamRef.current) {
-              localStreamRef.current.removeTrack(screenTrack);
-              localStreamRef.current.addTrack(videoTrack);
+            if (localStream) {
+              localStream.removeTrack(screenTrack);
+              localStream.addTrack(videoTrack);
               
               if (localVideoRef.current) {
-                localVideoRef.current.srcObject = localStreamRef.current;
+                localVideoRef.current.srcObject = localStream;
               }
             }
           };
@@ -672,7 +684,7 @@ export default function MeetingRoom() {
   };
   
   // Get the participant count
-  const participantCount = participants ? participants.length : 0;
+  const participantCount = participantsData ? participantsData.length : 0;
 
   // If we can't find the meeting or it's not active, show an error
   useEffect(() => {
@@ -691,10 +703,10 @@ export default function MeetingRoom() {
   
   // Effect to ensure remote videos play properly when streams are added
   useEffect(() => {
-    // Loop through all webrtcParticipants with streams and make sure they play
-    Object.values(webrtcParticipants).forEach(participant => {
+    // Loop through all participants with streams and make sure they play
+    Object.values(participants).forEach(participant => {
       if (participant.stream) {
-        const videoElement = remoteVideoRefs.current.get(participant.userId);
+        const videoElement = document.getElementById(`video-${participant.userId}`);
         if (videoElement && videoElement.paused) {
           console.log(`Found paused video for participant ${participant.userId}, attempting to play`);
           
@@ -715,17 +727,14 @@ export default function MeetingRoom() {
         }
       }
     });
-  }, [webrtcParticipants]); // Re-run when participants list changes
+  }, [participants]); // Re-run when participants list changes
 
   // Handle remote participant streams with WebRTC
   const handleParticipantJoined = useCallback((participant: any) => {
     console.log(`Participant joined: ${participant.displayName} (${participant.userId})`);
-    setWebrtcParticipants(prev => ({
+    setParticipants(prev => ({
       ...prev,
-      [participant.userId]: {
-        stream: participant.stream,
-        userId: participant.userId
-      }
+      [participant.userId]: participant
     }));
   }, []);
   
@@ -806,7 +815,14 @@ export default function MeetingRoom() {
     // Update participant media state
     setWebrtcParticipants(prev => ({
       ...prev,
-      [userId]: stream
+      [userId]: {
+        ...prev[userId],
+        stream,
+        mediaState: {
+          audio: stream.getAudioTracks().some(track => track.enabled),
+          video: stream.getVideoTracks().some(track => track.enabled)
+        }
+      }
     }));
 
     // Log success

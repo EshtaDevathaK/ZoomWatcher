@@ -520,13 +520,6 @@ export function useWebRTC({
         peerConnection.ontrack = (event) => {
           console.log(`Received track from participant ${targetUserId}:`, event.track.kind, event.track.enabled);
           
-          // Store the streams from the event
-          const streams = event.streams;
-          
-          if (!participantStreamsRef.current) {
-            participantStreamsRef.current = new Map();
-          }
-          
           // Create or get the remote stream
           let remoteStream: MediaStream;
           const existingStream = participantStreamsRef.current.get(targetUserId);
@@ -560,7 +553,6 @@ export function useWebRTC({
               audioElement = document.createElement('audio');
               audioElement.id = `audio-${targetUserId}`;
               audioElement.autoplay = true;
-              audioElement.playsInline = true;
               audioElement.style.display = 'none';
               document.body.appendChild(audioElement);
             }
@@ -793,13 +785,6 @@ export function useWebRTC({
         peerConnection.ontrack = (event) => {
           console.log(`Received track from participant ${fromUserId}:`, event.track.kind, event.track.enabled);
           
-          // Store the streams from the event
-          const streams = event.streams;
-          
-          if (!participantStreamsRef.current) {
-            participantStreamsRef.current = new Map();
-          }
-          
           // Create or get the remote stream
           let remoteStream: MediaStream;
           const existingStream = participantStreamsRef.current.get(fromUserId);
@@ -833,7 +818,6 @@ export function useWebRTC({
               audioElement = document.createElement('audio');
               audioElement.id = `audio-${fromUserId}`;
               audioElement.autoplay = true;
-              audioElement.playsInline = true;
               audioElement.style.display = 'none';
               document.body.appendChild(audioElement);
             }

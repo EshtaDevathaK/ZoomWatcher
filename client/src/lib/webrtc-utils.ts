@@ -2,6 +2,8 @@
  * WebRTC utilities for peer-to-peer connections in meetings
  */
 
+import { toast } from 'sonner';
+
 // Configuration for WebRTC peer connections with enhanced server list
 const iceServers = {
   iceServers: [
@@ -49,29 +51,45 @@ const iceServers = {
  * @returns RTCPeerConnection with optimized settings
  */
 export function createPeerConnection(): RTCPeerConnection {
-  const pc = new RTCPeerConnection(iceServers);
+  const config: RTCConfiguration = {
+    iceServers: [
+      {
+        urls: [
+          'stun:stun1.l.google.com:19302',
+          'stun:stun2.l.google.com:19302'
+        ]
+      }
+    ],
+    iceCandidatePoolSize: 10,
+    bundlePolicy: 'max-bundle' as RTCBundlePolicy,
+    rtcpMuxPolicy: 'require' as RTCRtcpMuxPolicy,
+    iceTransportPolicy: 'all' as RTCIceTransportPolicy,
+    sdpSemantics: 'unified-plan'
+  };
+
+  const pc = new RTCPeerConnection(config);
   
   // Log connection state changes
   pc.onconnectionstatechange = () => {
-    console.log('Connection state:', pc.connectionState);
+    console.log('Connection state change:', pc.connectionState);
     if (pc.connectionState === 'connected') {
       console.log('Connection established successfully');
     }
   };
 
   pc.oniceconnectionstatechange = () => {
-    console.log('ICE Connection state:', pc.iceConnectionState);
+    console.log('ICE connection state change:', pc.iceConnectionState);
     if (pc.iceConnectionState === 'connected') {
       console.log('ICE Connection established successfully');
     }
   };
 
   pc.onicegatheringstatechange = () => {
-    console.log('ICE Gathering state:', pc.iceGatheringState);
+    console.log('ICE gathering state change:', pc.iceGatheringState);
   };
 
   pc.onsignalingstatechange = () => {
-    console.log('Signaling state:', pc.signalingState);
+    console.log('Signaling state change:', pc.signalingState);
   };
 
   // Handle incoming tracks
@@ -186,51 +204,25 @@ export function createPeerConnection(): RTCPeerConnection {
  * Create a WebSocket connection for signaling
  * @returns Promise that resolves to the WebSocket connection
  */
-export function createWebSocketConnection(token?: string): Promise<WebSocket> {
+export async function createWebSocketConnection(token?: string): Promise<WebSocket> {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const host = window.location.hostname;
+  const port = '5000'; // Use fixed port 5000 for WebSocket connection
+  const wsUrl = `${protocol}//${host}:${port}/ws${token ? `?token=${token}` : ''}`;
+
+  console.log('Creating WebSocket connection to:', wsUrl);
+
   return new Promise((resolve, reject) => {
     try {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const host = window.location.hostname;
-      const port = '5000'; // Explicitly set port to 5000
-      const wsUrl = `${protocol}//${host}:${port}/ws${token ? `?token=${token}` : ''}`;
-      
-      console.log('Creating WebSocket connection to:', wsUrl);
       const socket = new WebSocket(wsUrl);
-      
-      let connectionTimeout: NodeJS.Timeout;
 
-      // Set a connection timeout
-      connectionTimeout = setTimeout(() => {
-        console.error('WebSocket connection timeout');
-        socket.close();
-        reject(new Error('WebSocket connection timeout'));
-      }, 5000);
-      
       socket.onopen = () => {
         console.log('WebSocket connection established successfully');
-        clearTimeout(connectionTimeout);
-        
-        // Add heartbeat to keep connection alive
-        const heartbeat = setInterval(() => {
-          if (socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ type: 'ping' }));
-          } else {
-            clearInterval(heartbeat);
-          }
-        }, 30000);
-
-        // Clean up heartbeat on close
-        socket.onclose = () => {
-          clearInterval(heartbeat);
-          console.log('WebSocket connection closed');
-        };
-
         resolve(socket);
       };
-      
+
       socket.onerror = (error) => {
         console.error('WebSocket connection error:', error);
-        clearTimeout(connectionTimeout);
         reject(error);
       };
     } catch (error) {
@@ -246,9 +238,18 @@ export function createWebSocketConnection(token?: string): Promise<WebSocket> {
  * @returns Promise resolving to the created SDP offer
  */
 export async function createOffer(peerConnection: RTCPeerConnection): Promise<RTCSessionDescriptionInit> {
-  const offer = await peerConnection.createOffer();
-  await peerConnection.setLocalDescription(offer);
-  return offer;
+  try {
+    const offer = await peerConnection.createOffer({
+      offerToReceiveAudio: true,
+      offerToReceiveVideo: true
+    });
+
+    await peerConnection.setLocalDescription(offer);
+    return offer;
+  } catch (error) {
+    console.error('Error creating offer:', error);
+    throw error;
+  }
 }
 
 /**
@@ -261,10 +262,15 @@ export async function createAnswer(
   peerConnection: RTCPeerConnection,
   offer: RTCSessionDescriptionInit
 ): Promise<RTCSessionDescriptionInit> {
-  await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-  const answer = await peerConnection.createAnswer();
-  await peerConnection.setLocalDescription(answer);
-  return answer;
+  try {
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+    return answer;
+  } catch (error) {
+    console.error('Error creating answer:', error);
+    throw error;
+  }
 }
 
 /**
@@ -272,59 +278,44 @@ export async function createAnswer(
  * @param peerConnection The RTCPeerConnection to add tracks to
  * @param stream The MediaStream to add
  */
-export async function addMediaStreamToPeerConnection(pc: RTCPeerConnection, stream: MediaStream | null) {
+export function addMediaStreamToPeerConnection(
+  peerConnection: RTCPeerConnection,
+  stream: MediaStream
+): void {
   if (!stream) {
-    console.error('No media stream provided');
+    console.error('No stream provided to addMediaStreamToPeerConnection');
     return;
   }
 
-  // Remove all existing senders first
-  const senders = pc.getSenders();
-  for (const sender of senders) {
-    pc.removeTrack(sender);
-  }
+  // Remove existing senders
+  const senders = peerConnection.getSenders();
+  senders.forEach(sender => {
+    peerConnection.removeTrack(sender);
+  });
 
-  // Log stream details
-  console.log('Adding media stream with tracks:', stream.getTracks().length);
-  console.log('Audio tracks:', stream.getAudioTracks().length);
-  console.log('Video tracks:', stream.getVideoTracks().length);
+  // Add all tracks from the stream
+  stream.getTracks().forEach(track => {
+    console.log(`Adding track to peer connection: ${track.kind}`, {
+      enabled: track.enabled,
+      muted: track.muted,
+      readyState: track.readyState
+    });
 
-  // Add each track from the stream
-  for (const track of stream.getTracks()) {
-    console.log(`Adding track: ${track.kind}, ID: ${track.id}`);
-    console.log(`Track state - enabled: ${track.enabled}, muted: ${track.muted}, readyState: ${track.readyState}`);
-    
     // Ensure track is enabled
     track.enabled = true;
 
-    // Set specific parameters for video tracks
+    // Set content hint for video tracks to maintain quality
     if (track.kind === 'video') {
-      track.contentHint = 'detail';  // Optimize for quality
+      (track as VideoTrack).contentHint = 'detail';
     }
 
-    try {
-      const sender = pc.addTrack(track, stream);
-      console.log(`Track added successfully, sender created: ${sender.track?.kind}`);
+    peerConnection.addTrack(track, stream);
+  });
 
-      // Set encoding parameters for video tracks
-      if (track.kind === 'video' && sender) {
-        const params = sender.getParameters();
-        if (!params.encodings) {
-          params.encodings = [{}];
-        }
-        params.encodings[0].maxBitrate = 2500000; // 2.5 Mbps
-        params.encodings[0].maxFramerate = 30;
-        await sender.setParameters(params);
-      }
-    } catch (error) {
-      console.error(`Error adding track to peer connection:`, error);
-    }
-  }
-
-  // Log final state
-  console.log('Current peer connection state:', pc.connectionState);
-  console.log('Current ICE connection state:', pc.iceConnectionState);
-  console.log('Number of senders after adding tracks:', pc.getSenders().length);
+  // Log the current state of tracks in the peer connection
+  console.log('Current peer connection senders:', peerConnection.getSenders().length);
+  console.log('Audio tracks:', stream.getAudioTracks().length);
+  console.log('Video tracks:', stream.getVideoTracks().length);
 }
 
 /**
@@ -338,13 +329,18 @@ export async function addMediaStreamToPeerConnection(pc: RTCPeerConnection, stre
 export function formatWebRTCMessage(
   type: string,
   meetingId: number,
-  from: { userId: number; username: string; displayName: string },
+  from: {
+    userId: string;
+    username: string;
+    displayName: string;
+  },
   data: any
-): any {
+) {
   return {
     type,
     meetingId,
     from,
     data,
+    timestamp: Date.now()
   };
 }
